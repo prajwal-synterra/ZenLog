@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 class ApiConstants {
   // Use 10.0.2.2 for Android emulator, 127.0.0.1 for Web and Windows desktop
   static String get baseUrl {
-    return 'https://dawdlingly-pseudoinsane-pa.ngrok-free.dev';
+    return 'https://zenlog-zma5.onrender.com';
   }
 
   // Endpoints
