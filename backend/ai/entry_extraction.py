@@ -104,7 +104,7 @@ async def _within_daily_cap(database, user_id: str, date_key: str, cap: int = 12
     return (day.get("gemini_calls", 0) or 0) < cap
 
 
-async def _increment_gemini_calls(database, user_id: str, date_key: str):
+def _increment_gemini_calls(database, user_id: str, date_key: str):
     database["days"].update_one(
         {"user_id": user_id, "date": date_key},
         {"$inc": {"gemini_calls": 1},

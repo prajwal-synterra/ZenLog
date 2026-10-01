@@ -75,6 +75,31 @@ def aggregate_period(
     if eligible_target_days > 0:
         adherence_pct = round((target_met_days / eligible_target_days) * 100, 1)
 
+    # Calculate sleep metrics from daily_records
+    records = list(database["daily_records"].find({
+        "user_id": user_id,
+        "date": {"$gte": start_iso, "$lte": end_iso},
+    }))
+    total_sleep_mins = 0
+    sleep_days = 0
+    for r in records:
+        w_time = r.get("wake", {}).get("wake_time")
+        s_time = r.get("sleep", {}).get("sleep_time")
+        if w_time and s_time:
+            try:
+                wh, wm = map(int, w_time.split(":"))
+                sh, sm = map(int, s_time.split(":"))
+                w_tot = wh * 60 + wm
+                s_tot = sh * 60 + sm
+                dur = (w_tot - s_tot) if w_tot >= s_tot else (w_tot + 1440 - s_tot)
+                if 60 <= dur <= 16 * 60:
+                    total_sleep_mins += dur
+                    sleep_days += 1
+            except Exception:
+                pass
+    avg_sleep_mins = round(total_sleep_mins / sleep_days) if sleep_days > 0 else None
+    avg_sleep_hours = round(total_sleep_mins / (60 * sleep_days), 1) if sleep_days > 0 else None
+
     return {
         "period": period,
         "start_date": start_iso,
@@ -85,6 +110,8 @@ def aggregate_period(
         "protein_target_adherence_percent": adherence_pct,
         "workout_days": workout_days,
         "average_hydration_ml": _rounded(avg_hydration),
+        "average_sleep_hours": avg_sleep_hours,
+        "average_sleep_minutes": avg_sleep_mins,
         "tracked_days": tracked_count,
     }
 

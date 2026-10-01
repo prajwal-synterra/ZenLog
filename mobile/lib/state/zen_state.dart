@@ -3,17 +3,19 @@ import 'package:flutter/material.dart';
 import '../models/user_model.dart';
 import '../models/insight_model.dart';
 import '../services/api_service.dart';
+import '../services/auth_storage.dart';
+import '../services/quote_storage.dart';
+import '../services/sleep_wake_storage.dart';
+import '../screens/home/widgets/sleep_wake_dialogs.dart';
 
 /// Single source of truth for the entire app.
-///
-/// Key v2 principle: selectedDate drives ALL data fetches.
-/// The server's /api/days/{date}/view is the one endpoint for the home screen.
-class ZenState extends ChangeNotifier {
+class ZenState extends ChangeNotifier with WidgetsBindingObserver {
   final ApiService _api = ApiService();
 
   // ── User ──────────────────────────────────────────────────────────────────
   UserModel? user;
   String? logicalToday; // "YYYY-MM-DD" from server (4 AM rule)
+
 
   // ── Selected date ─────────────────────────────────────────────────────────
   /// The currently viewed date. Drives everything.
@@ -26,10 +28,13 @@ class ZenState extends ChangeNotifier {
     _dayViewCache.remove(date); // Force fresh fetch for new date
     notifyListeners();
     loadDayView(date);
+    refreshSleepWakeData();
+    ensureQuoteLoaded(date);
   }
 
   // ── DayView cache (keyed by date) ─────────────────────────────────────────
   final Map<String, Map<String, dynamic>> _dayViewCache = {};
+
   final Map<String, bool> _dayViewLoading = {};
   final Map<String, String?> _dayViewError = {};
 
@@ -50,24 +55,89 @@ class ZenState extends ChangeNotifier {
   bool isLoading = false;
   String? errorMessage;
 
+  // ── Sleep & Wake state ────────────────────────────────────────────────────
+  DateTime? _wakeTime;
+  DateTime? _sleepTime;
+  Duration? _sleepDuration;
+  bool _isSleepPending = false;
+
+  DateTime? get wakeTime => _wakeTime;
+  DateTime? get sleepTime => _sleepTime;
+  Duration? get sleepDuration => _sleepDuration;
+  bool get isSleepPending => _isSleepPending;
+  String get formattedSleepDuration => SleepWakeStorage.formatDuration(_sleepDuration);
+
+  // ── 24-Hour Quotes State ───────────────────────────────────────────────────
+  final Map<String, DailyQuote> _quotesCache = {};
+  DailyQuote? get currentDailyQuote => _quotesCache[_selectedDate];
+  DailyQuote? getQuoteForDate(String date) => _quotesCache[date];
+
+  Future<DailyQuote> ensureQuoteLoaded(String date) async {
+    if (_quotesCache.containsKey(date)) {
+      return _quotesCache[date]!;
+    }
+
+    // 1. Check Phone Local Cache (Offline First: SharedPreferences zen_quote_YYYY-MM-DD)
+    final local = await QuoteStorage.getLocalQuote(date);
+    if (local != null) {
+      _quotesCache[date] = local;
+      notifyListeners();
+      return local;
+    }
+
+    // 2. Fetch from backend (DB Cache -> RapidAPI -> Fallback pool)
+    final quote = await QuoteStorage.getOrFetchQuote(
+      date,
+      fetchRemote: (d) => _api.getDailyQuote(d),
+    );
+    _quotesCache[date] = quote;
+    notifyListeners();
+    return quote;
+  }
+
   // ── Init (called after token is set) ─────────────────────────────────────
   Future<void> init() async {
     isLoading = true;
     notifyListeners();
 
-    // Get logical today from server (authoritative 4 AM boundary)
-    final me = await _api.getMe();
-    if (me != null) {
-      logicalToday = me['logical_today'] as String?;
-      _selectedDate = logicalToday ?? _todayLocal();
-      user = _userFromMe(me);
+    // 1. Restore cached user profile immediately if present
+    final cachedUserMap = await AuthStorage.getCachedUser();
+    if (cachedUserMap != null) {
+      user = UserModel.fromJson(cachedUserMap);
+      logicalToday = cachedUserMap['logical_today'] as String? ?? _todayLocal();
+      _selectedDate = logicalToday!;
     }
 
-    // Load the day view for today
+    // 2. Fetch authoritative user from server
+    try {
+      final me = await _api.getMe();
+      if (me != null) {
+        logicalToday = me['logical_today'] as String?;
+        if (logicalToday != null) _selectedDate = logicalToday!;
+        user = _userFromMe(me);
+        await AuthStorage.saveCachedUser(me);
+      }
+    } catch (_) {}
+
+    // 3. Load day view, sleep/wake cycle, and quote
     await loadDayView(_selectedDate);
+    await refreshSleepWakeData();
+    ensureQuoteLoaded(_selectedDate);
+
+    WidgetsBinding.instance.addObserver(this);
 
     isLoading = false;
     notifyListeners();
+  }
+
+  // ── App lifecycle ──────────────────────────────────────────────────────────
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      loadDayView(_selectedDate, silent: true);
+      refreshSleepWakeData();
+    }
   }
 
   Future<void> loadDayView(String date, {bool silent = false}) async {
@@ -76,11 +146,20 @@ class ZenState extends ChangeNotifier {
     if (!silent) notifyListeners();
 
     try {
-      final data = await _api.getDayView(date);
-      if (data != null) {
-        _dayViewCache[date] = data;
+      final fresh = await _api.getDayView(date);
+      if (fresh != null) {
+        _dayViewCache[date] = fresh;
         _dayViewError[date] = null;
-        _startPollingIfNeeded(data, date);
+        final qRaw = fresh['quote'];
+        if (qRaw is Map) {
+          final qMap = qRaw.map((k, v) => MapEntry(k.toString(), v));
+          if (qMap['quote'] != null) {
+            final dq = DailyQuote.fromJson(qMap, defaultDate: date);
+            _quotesCache[date] = dq;
+            QuoteStorage.saveLocalQuote(dq);
+          }
+        }
+        _startPollingIfNeeded(fresh, date);
       } else {
         _dayViewError[date] = 'Could not load data for $date.';
       }
@@ -125,34 +204,57 @@ class ZenState extends ChangeNotifier {
     _pollTimer = null;
   }
 
-  // ── Log actions ───────────────────────────────────────────────────────────
+  // ── Log actions (Direct Online API) ───────────────────────────────────────
 
   Future<bool> addLog(String text) async {
-    if (text.trim().isEmpty) return false;
-    final created = await _api.createLog(text);
-    if (created != null) {
-      await loadDayView(_selectedDate);
-      return true;
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return false;
+
+    try {
+      final created = await _api.createLog(trimmed, date: _selectedDate);
+      if (created != null) {
+        _dayViewCache.remove(_selectedDate);
+        await loadDayView(_selectedDate);
+        return true;
+      }
+      errorMessage = "Couldn't save log. Please try again.";
+      notifyListeners();
+      return false;
+    } catch (e) {
+      errorMessage = "Error saving log: $e";
+      notifyListeners();
+      return false;
     }
-    return false;
   }
 
   Future<bool> editLog(String logId, String newText) async {
-    if (newText.trim().isEmpty) return false;
-    final updated = await _api.updateLog(logId, newText);
-    if (updated != null) {
-      await loadDayView(_selectedDate);
-      return true;
+    final trimmed = newText.trim();
+    if (trimmed.isEmpty) return false;
+
+    try {
+      final updated = await _api.updateLog(logId, trimmed);
+      if (updated != null) {
+        _dayViewCache.remove(_selectedDate);
+        await loadDayView(_selectedDate);
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
     }
-    return false;
   }
 
   Future<bool> deleteLog(String logId) async {
-    final success = await _api.deleteLog(logId);
-    if (success) {
-      await loadDayView(_selectedDate);
+    try {
+      final success = await _api.deleteLog(logId);
+      if (success) {
+        _dayViewCache.remove(_selectedDate);
+        await loadDayView(_selectedDate);
+      }
+      return success;
+    } catch (_) {
+      return false;
     }
-    return success;
   }
 
   Future<bool> retryLog(String logId) async {
@@ -206,10 +308,81 @@ class ZenState extends ChangeNotifier {
     }
   }
 
-  // ── Wake time ─────────────────────────────────────────────────────────────
+  // ── Sleep & Wake actions ──────────────────────────────────────────────────
+
+  Future<void> refreshSleepWakeData() async {
+    final current = _selectedDate;
+    final d = DateTime.tryParse(current) ?? DateTime.now();
+    final prev = d.subtract(const Duration(days: 1));
+    final prevDate =
+        '${prev.year}-${prev.month.toString().padLeft(2, '0')}-${prev.day.toString().padLeft(2, '0')}';
+
+    _wakeTime = await SleepWakeStorage.getWakeTime(current);
+    _sleepTime = await SleepWakeStorage.getSleepTime(prevDate);
+    _isSleepPending = await SleepWakeStorage.isSleepPending(prevDate);
+
+    // If storage doesn't have wakeTime yet, check current dayView
+    if (_wakeTime == null && currentDayView != null) {
+      final wakeMap = currentDayView?['wake'] as Map<String, dynamic>?;
+      final wakeStr = wakeMap?['wake_time'] as String? ?? (currentDayView?['wake_time'] as String?);
+      if (wakeStr != null) {
+        final parts = wakeStr.split(':');
+        if (parts.length == 2) {
+          final h = int.tryParse(parts[0]) ?? 0;
+          final m = int.tryParse(parts[1]) ?? 0;
+          _wakeTime = DateTime(d.year, d.month, d.day, h, m);
+        }
+      }
+    }
+
+    if (_wakeTime != null && _sleepTime != null) {
+      final diff = _wakeTime!.difference(_sleepTime!);
+      if (!diff.isNegative && diff.inMinutes > 0 && diff.inHours <= 16) {
+        _sleepDuration = diff;
+      } else {
+        _sleepDuration = null;
+      }
+    } else {
+      _sleepDuration = null;
+    }
+    notifyListeners();
+  }
+
+  Future<void> syncSleepTime(String sleepTime, {String? day}) async {
+    await _api.submitSleep(sleepTime, day: day);
+    if (day != null) {
+      _dayViewCache.remove(day);
+    }
+    await refreshSleepWakeData();
+    notifyListeners();
+  }
+
+  Future<void> handleNightSubmit(BuildContext context) async {
+    final today = logicalToday ?? _todayLocal();
+    final alreadyShown = await SleepWakeStorage.isNightPromptShown(today);
+
+    if (!alreadyShown && context.mounted) {
+      final sleepNow = await NightConfirmationModal.show(context);
+      if (sleepNow == true) {
+        final now = DateTime.now();
+        await SleepWakeStorage.saveNightSleepNow(todayDate: today, sleepTime: now);
+        final formatted =
+            '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+        await _api.submitSleep(formatted, day: today);
+      } else if (sleepNow == false) {
+        await SleepWakeStorage.saveNightAskTomorrow(todayDate: today);
+      }
+      await refreshSleepWakeData();
+    }
+
+    // Always run analysis as part of day submit
+    await analyzeDay(today);
+  }
 
   Future<bool> submitWakeTime(String wakeTime, {String? day}) async {
-    return _api.recordWake(wakeTime, day: day);
+    final ok = await _api.recordWake(wakeTime, day: day);
+    await refreshSleepWakeData();
+    return ok;
   }
 
   // ── Health ping ────────────────────────────────────────────────────────────
@@ -279,6 +452,7 @@ class ZenState extends ChangeNotifier {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _stopPolling();
     super.dispose();
   }

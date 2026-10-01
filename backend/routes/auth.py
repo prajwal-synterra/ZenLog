@@ -18,8 +18,22 @@ SESSION_ROLLING_THRESHOLD = timedelta(days=1)
 
 @router.post("/login", response_model=LoginResponse)
 def login(payload: LoginRequest, database: Database = Depends(get_database)):
+    raw_phone = payload.phone_number.strip().replace(" ", "").replace("-", "")
+    digits_only = raw_phone.lstrip("+")
+    last10 = digits_only[-10:] if len(digits_only) >= 10 else digits_only
+
     user = database["users"].find_one(
-        {"username": payload.username, "phone_number": payload.phone_number},
+        {
+            "username": payload.username,
+            "$or": [
+                {"phone_number": payload.phone_number},
+                {"phone_number": raw_phone},
+                {"phone_number": digits_only},
+                {"phone_number": last10},
+                {"phone_number": f"+91{last10}"},
+                {"phone_number": f"91{last10}"},
+            ],
+        },
         {"_id": 0},
     )
     if user is None:
@@ -52,9 +66,19 @@ def login(payload: LoginRequest, database: Database = Depends(get_database)):
         "revoked_at": None,
     })
 
+    from backend.models.log import IST
+    now_ist = datetime.now(IST)
+    if now_ist.hour < 4:
+        server_today_date = (now_ist - timedelta(hours=4)).date()
+    else:
+        server_today_date = now_ist.date()
+
     return LoginResponse(
         access_token=token,
         expires_at=expires_at,
+        server_time=now.isoformat(),
+        server_today=server_today_date.isoformat(),
+        day_cutoff_hours=4,
         user=UserResponse(
             user_id=user["user_id"],
             username=user["username"],
@@ -85,13 +109,14 @@ def get_me(
             )
 
     from backend.models.log import IST
-    from datetime import date as date_type
     logical_today = datetime.now(IST)
     if logical_today.hour < 4:
-        from datetime import timedelta as td
-        logical_today = (logical_today - td(hours=4)).date()
+        logical_today = (logical_today - timedelta(hours=4)).date()
     else:
         logical_today = logical_today.date()
+
+    from backend.services.close_service import _calculate_default_calories
+    cal_target = user.get("daily_calorie_target") or _calculate_default_calories(user)
 
     return {
         "user_id": user.get("user_id"),
@@ -99,11 +124,14 @@ def get_me(
         "name": user.get("name"),
         "goal": user.get("goal"),
         "daily_protein_target_g": user.get("daily_protein_target_g"),
-        "daily_calorie_target": user.get("daily_calorie_target"),
+        "daily_calorie_target": cal_target,
         "daily_water_target_ml": user.get("daily_water_target_ml", 3000),
         "weekly_workout_target": user.get("weekly_workout_target", 3),
         "body_weight_kg": user.get("body_weight_kg"),
         "logical_today": logical_today.isoformat(),
+        "server_today": logical_today.isoformat(),
+        "server_time": now.isoformat(),
+        "day_cutoff_hours": 4,
     }
 
 

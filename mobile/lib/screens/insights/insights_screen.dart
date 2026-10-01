@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/zen_colors.dart';
 import '../../models/insight_model.dart';
 import '../../services/api_service.dart';
+import '../../services/sleep_wake_storage.dart';
 import '../../state/zen_state.dart';
 
 // ZenLog v3 §6.9 – Insights screen
@@ -27,6 +28,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
   final ApiService _api = ApiService();
   bool _isWeekly = true;
   InsightModel? _insight;
+  Duration? _localAvgSleep;
   bool _isLoading = false;
   String? _error;
 
@@ -42,12 +44,15 @@ class _InsightsScreenState extends State<InsightsScreen> {
       _error = null;
     });
     try {
+      final sleepFuture = SleepWakeStorage.getAverageSleepDuration(daysCount: _isWeekly ? 7 : 30);
       final result = _isWeekly
           ? await _api.getWeeklyInsights()
           : await _api.getMonthlyInsights();
+      final localSleep = await sleepFuture;
       if (mounted) {
         setState(() {
           _insight = result;
+          _localAvgSleep = localSleep;
           _isLoading = false;
         });
       }
@@ -234,9 +239,54 @@ class _InsightsScreenState extends State<InsightsScreen> {
               ),
               const SizedBox(width: 10),
               _StatTile(
-                value: workoutDone != null ? '$workoutDone / $workoutTarget' : '—',
-                label: 'Workouts\ndone',
+                value: () {
+                  final avgSleepMins = (stats['average_sleep_minutes'] as num?)?.toInt();
+                  final avgSleepHours = (stats['average_sleep_hours'] as num?)?.toDouble();
+                  if (avgSleepMins != null && avgSleepMins > 0) {
+                    return SleepWakeStorage.formatDuration(Duration(minutes: avgSleepMins));
+                  } else if (_localAvgSleep != null) {
+                    return SleepWakeStorage.formatDuration(_localAvgSleep);
+                  } else if (avgSleepHours != null && avgSleepHours > 0) {
+                    final h = avgSleepHours.floor();
+                    final m = ((avgSleepHours - h) * 60).round();
+                    return m > 0 ? '${h}h ${m}m' : '${h}h';
+                  }
+                  return '—';
+                }(),
+                label: 'Avg\nsleep',
+                icon: Icons.bedtime_outlined,
+                t: t,
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _StatTile(
+                value: workoutDone != null
+                    ? '$workoutDone ${workoutDone == 1 ? "day" : "days"}'
+                    : '—',
+                label: () {
+                  final effectiveTarget = _isWeekly ? workoutTarget : (workoutTarget * 4);
+                  if (workoutDone != null && workoutDone >= effectiveTarget) {
+                    return 'Workouts\nGoal: $effectiveTarget+ met ✓';
+                  }
+                  return 'Workouts\nGoal: $effectiveTarget+ days';
+                }(),
                 icon: Icons.fitness_center_outlined,
+                t: t,
+              ),
+              const SizedBox(width: 10),
+              _StatTile(
+                value: () {
+                  final avgHydration = (stats['average_hydration_ml'] as num?)?.toDouble();
+                  if (avgHydration != null && avgHydration > 0) {
+                    return '${avgHydration.toStringAsFixed(0)} ml';
+                  }
+                  return '—';
+                }(),
+                label: 'Avg\nwater',
+                icon: Icons.water_drop_outlined,
                 t: t,
               ),
             ],
@@ -287,6 +337,12 @@ class _InsightsScreenState extends State<InsightsScreen> {
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
+          Row(children: [
+            Expanded(child: _SkeletonBlock(t: t, height: 90)),
+            const SizedBox(width: 10),
+            Expanded(child: _SkeletonBlock(t: t, height: 90)),
+          ]),
+          const SizedBox(height: 10),
           Row(children: [
             Expanded(child: _SkeletonBlock(t: t, height: 90)),
             const SizedBox(width: 10),
@@ -407,7 +463,9 @@ class _TrendChart extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: daily.asMap().entries.map((e) {
                       final i = e.key;
-                      final d = e.value as Map<String, dynamic>;
+                      final d = e.value is Map<String, dynamic>
+                          ? e.value as Map<String, dynamic>
+                          : (e.value is Map ? Map<String, dynamic>.from(e.value as Map) : <String, dynamic>{});
                       final proteinG = (d['protein_g'] as num?)?.toDouble() ?? 0;
                       final rating = (d['rating'] as String?) ?? 'insufficient_data';
 
@@ -451,7 +509,9 @@ class _TrendChart extends StatelessWidget {
           // Day labels
           Row(
             children: daily.asMap().entries.map((e) {
-              final d = e.value as Map<String, dynamic>;
+              final d = e.value is Map<String, dynamic>
+                  ? e.value as Map<String, dynamic>
+                  : (e.value is Map ? Map<String, dynamic>.from(e.value as Map) : <String, dynamic>{});
               final date = d['date'] as String? ?? '';
               DateTime? dt;
               try { dt = DateTime.parse(date); } catch (_) {}
@@ -734,15 +794,22 @@ class _StatTile extends StatelessWidget {
             const SizedBox(height: 10),
             Text(
               value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: t.ink,
-                fontSize: 26,
+                fontSize: 24,
                 fontWeight: FontWeight.w700,
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
             const SizedBox(height: 2),
-            Text(label, style: TextStyle(color: t.inkMuted, fontSize: 12, height: 1.3)),
+            Text(
+              label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: t.inkMuted, fontSize: 12, height: 1.3),
+            ),
           ],
         ),
       ),

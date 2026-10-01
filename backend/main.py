@@ -1,7 +1,13 @@
 import asyncio
 import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+# Ensure project root is on sys.path so "from backend..." imports succeed from any cwd
+_project_root = str(Path(__file__).resolve().parent.parent)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -16,8 +22,11 @@ from backend.routes.days import router as days_router
 from backend.routes.health import router as health_router
 from backend.routes.insights import router as insights_router
 from backend.routes.logs import router as logs_router
+from backend.routes.quotes import router as quotes_router
 from backend.routes.stats import router as stats_router
 from backend.routes.users import router as users_router
+from backend.services.quote_service import seed_default_quotes
+
 
 
 async def _sweeper_loop(database):
@@ -74,6 +83,17 @@ async def lifespan(app: FastAPI):
         [("extraction_status", 1), ("updated_at", 1)],
         name="extraction_sweeper",
     )
+    try:
+        db["daily_logs"].drop_index("user_client_id_unique")
+    except Exception:
+        pass
+    db["daily_logs"].create_index(
+        [("user_id", 1), ("client_id", 1)],
+        unique=True,
+        partialFilterExpression={"client_id": {"$type": "string"}},
+        name="user_client_id_unique",
+    )
+
 
     # Days (v2)
     db["days"].create_index(
@@ -95,6 +115,16 @@ async def lifespan(app: FastAPI):
         unique=True,
         name="user_period_unique",
     )
+
+    # Daily quotes (24-hour cache per user per date)
+    db["daily_quotes"].create_index(
+        [("user_id", 1), ("date", 1)],
+        unique=True,
+        name="daily_quotes_user_date_unique",
+    )
+
+    # Pre-seed default quotes pool if empty
+    seed_default_quotes(db)
 
     # --- Run startup sweeper (catch stuck pending logs from last server run) ---
     from backend.ai.entry_extraction import sweeper as run_sweeper
@@ -125,6 +155,7 @@ app.include_router(auth_router)
 app.include_router(logs_router)
 app.include_router(day_view_router)   # New v2 day view (mounted before legacy days router)
 app.include_router(days_router)       # Legacy: /api/days/prompt-status, wake, sleep, etc.
+app.include_router(quotes_router)     # Quotes: /api/quotes/{day}
 app.include_router(users_router)
 app.include_router(calendar_router)
 app.include_router(stats_router)

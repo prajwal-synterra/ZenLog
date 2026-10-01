@@ -3,6 +3,17 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/zen_colors.dart';
 import '../../core/theme/zen_theme_controller.dart';
 import '../../state/zen_state.dart';
+import 'widgets/morning_walk_card.dart';
+
+
+Map<String, dynamic>? _asMap(dynamic val) {
+  if (val == null) return null;
+  if (val is Map<String, dynamic>) return val;
+  if (val is Map) {
+    return val.map((k, v) => MapEntry(k.toString(), v));
+  }
+  return null;
+}
 
 // ─── Home / Today Screen ───────────────────────────────────────────────────
 // Implements ZenLog v3 §6.5 – "Ink & Paper" design
@@ -135,6 +146,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final today = state.logicalToday ?? state.selectedDate;
     final isOnToday = state.selectedDate == today;
 
+    final rawName = user?.name.trim();
+    final String? displayName = (rawName != null && rawName.isNotEmpty)
+        ? rawName
+        : ((user?.username.trim().isNotEmpty == true) ? user!.username.trim() : null);
+
     String dayName;
     String dateStr;
     if (mode == 'today') {
@@ -156,6 +172,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (displayName != null) ...[
+                  Text(
+                    'Welcome, $displayName',
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: t.inkMuted,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                ],
                 Text(
                   dayName,
                   style: GoogleFonts.fraunces(
@@ -198,6 +226,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   GestureDetector(
                     key: const ValueKey('theme_toggle_btn'),
                     onTap: () => ZenThemeController.instance.toggleTheme(context),
+
                     child: Container(
                       width: 40,
                       height: 40,
@@ -364,6 +393,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (mode == 'today') ...[
+            if (widget.state.wakeTime != null) ...[
+              MorningWalkCard(wakeTime: widget.state.wakeTime!),
+            ],
+            _buildDailyQuoteBanner(state, dayView, t),
             _buildPaceCard(dayView, t),
             const SizedBox(height: 12),
             _buildNextMoveCard(dayView, t),
@@ -376,6 +409,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ],
             _buildAnalyzeCard(dayView, state, t),
           ] else if (mode == 'past') ...[
+            _buildDailyQuoteBanner(state, dayView, t),
             _buildScoreRing(dayView, t),
             const SizedBox(height: 12),
             _buildVerdictNote(dayView, state, t),
@@ -396,9 +430,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // ── Pace card ──────────────────────────────────────────────────────────────
 
   Widget _buildPaceCard(Map<String, dynamic> dayView, ZenThemeTokens t) {
-    final totals = (dayView['totals'] as Map<String, dynamic>?) ?? {};
-    final targets = (dayView['targets'] as Map<String, dynamic>?) ?? {};
-    final progress = (dayView['progress'] as Map<String, dynamic>?) ?? {};
+    final totals = _asMap(dayView['totals']) ?? {};
+    final targets = _asMap(dayView['targets']) ?? {};
+    final progress = _asMap(dayView['progress']) ?? {};
     final pendingCount = (dayView['pending_count'] as int?) ?? 0;
 
     final proteinActual = (totals['protein_g'] as num?)?.toDouble() ?? 0;
@@ -406,7 +440,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final waterActual = (totals['hydration_ml'] as num?)?.toDouble() ?? 0;
     final waterTarget = (targets['water_ml'] as num?)?.toDouble() ?? 3000;
     final calActual = (totals['calories_kcal'] as num?)?.toDouble() ?? 0;
-    final calTarget = (targets['calories_kcal'] as num?)?.toDouble();
+    final calTarget = (targets['calories_kcal'] as num?)?.toDouble()
+        ?? widget.state.user?.dailyCalorieTarget
+        ?? 2000.0;
     final workoutDone = totals['workout_done'] == true;
     final weekDone = (progress['workout'] as Map?)?['week_done'] as int?
         ?? (widget.state.weeklyInsight?.statsSummary['workout_days'] as num?)?.toInt()
@@ -501,6 +537,26 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               ],
             ],
           ),
+          const SizedBox(height: 12),
+          // Sleep row
+          Row(
+            children: [
+              Icon(Icons.bedtime_outlined, size: 16, color: t.inkMuted),
+              const SizedBox(width: 8),
+              Text('Sleep', style: TextStyle(color: t.inkMuted, fontSize: 14)),
+              const Spacer(),
+              Text(
+                widget.state.formattedSleepDuration,
+                style: TextStyle(
+                  color: widget.state.formattedSleepDuration != '—'
+                      ? t.ink
+                      : t.inkMuted,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -509,8 +565,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // ── Next Move card ─────────────────────────────────────────────────────────
 
   Widget _buildNextMoveCard(Map<String, dynamic> dayView, ZenThemeTokens t) {
-    final progress = (dayView['progress'] as Map<String, dynamic>?) ?? {};
-    final nextAction = progress['next_action'] as Map<String, dynamic>?;
+    final progress = _asMap(dayView['progress']) ?? {};
+    final nextAction = _asMap(progress['next_action']);
     final alerts = (progress['alerts'] as List?) ?? [];
 
     final text = (nextAction?['text'] as String?) ??
@@ -618,7 +674,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ),
         const SizedBox(height: 10),
         ...logs.reversed.map((log) => _EntryRow(
-          log: log as Map<String, dynamic>,
+          log: _asMap(log) ?? {},
           state: state,
           editable: editable,
           t: t,
@@ -681,8 +737,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   Widget _buildVerdictNote(Map<String, dynamic> dayView, ZenState state, ZenThemeTokens t) {
     final verdictStatus = (dayView['verdict_status'] as String?) ?? 'none';
-    final verdict = dayView['verdict'] as Map<String, dynamic>?;
-    final ai = verdict?['ai'] as Map<String, dynamic>?;
+    final verdict = _asMap(dayView['verdict']);
+    final ai = _asMap(verdict?['ai']);
 
     if (verdictStatus == 'pending') {
       return _ZenCard(
@@ -808,13 +864,76 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     );
   }
 
+  // ── Daily Quote Banner (Today / Past) ────────────────────────────────────
+
+  Widget _buildDailyQuoteBanner(ZenState state, Map<String, dynamic> dayView, ZenThemeTokens t) {
+    final quoteObj = state.currentDailyQuote;
+    final quoteMap = _asMap(dayView['quote']);
+    final quoteText = quoteObj?.quote ?? quoteMap?['quote'] as String?;
+    final quoteAuthor = quoteObj?.author ?? quoteMap?['author'] as String?;
+
+    if (quoteText == null || quoteText.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: t.surfaceAlt,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: t.line),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 2, right: 10),
+              child: Icon(Icons.format_quote_rounded, size: 20, color: t.accent),
+            ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '“$quoteText”',
+                    style: GoogleFonts.fraunces(
+                      color: t.ink,
+                      fontSize: 14,
+                      fontStyle: FontStyle.italic,
+                      height: 1.45,
+                    ),
+                  ),
+                  if (quoteAuthor != null && quoteAuthor.isNotEmpty) ...[
+                    const SizedBox(height: 5),
+                    Text(
+                      '— $quoteAuthor',
+                      style: TextStyle(
+                        color: t.inkMuted,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ── Motivation hero (future) ───────────────────────────────────────────────
 
   Widget _buildMotivationHero(Map<String, dynamic> dayView, ZenThemeTokens t) {
-    final motivation = (dayView['motivation'] as Map<String, dynamic>?) ?? {};
+    final motivation = _asMap(dayView['motivation']) ?? {};
     final headline = motivation['headline'] as String? ?? 'Plan ahead';
-    final message = motivation['message'] as String? ?? '';
     final tone = motivation['tone'] as String? ?? 'steady';
+
+    final quoteObj = _asMap(dayView['quote']);
+    final quoteText = quoteObj?['quote'] as String? ?? motivation['quote'] as String?;
+    final quoteAuthor = quoteObj?['author'] as String? ?? motivation['author'] as String?;
+    final fallbackMessage = motivation['message'] as String? ?? '';
 
     final bgColor = tone == 'push'
         ? t.warnTint
@@ -837,30 +956,67 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Row(
+            children: [
+              Icon(Icons.format_quote_rounded, size: 18, color: accentColor),
+              const SizedBox(width: 6),
+              Text(
+                'DAILY MOTIVATION',
+                style: TextStyle(
+                  color: t.inkFaint,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.0,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
           Text(
             headline,
             style: GoogleFonts.fraunces(
-              fontSize: 28,
+              fontSize: 26,
               fontWeight: FontWeight.w600,
               color: t.ink,
               height: 1.2,
             ),
           ),
-          if (message.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Text(message, style: TextStyle(color: t.inkMuted, fontSize: 15, height: 1.5)),
+          const SizedBox(height: 12),
+          if (quoteText != null && quoteText.isNotEmpty) ...[
+            Text(
+              '“$quoteText”',
+              style: GoogleFonts.fraunces(
+                color: t.ink,
+                fontSize: 15,
+                fontStyle: FontStyle.italic,
+                height: 1.5,
+              ),
+            ),
+            if (quoteAuthor != null && quoteAuthor.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                '— $quoteAuthor',
+                style: TextStyle(
+                  color: t.inkMuted,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ],
+          ] else if (fallbackMessage.isNotEmpty) ...[
+            Text(fallbackMessage, style: TextStyle(color: t.inkMuted, fontSize: 14, height: 1.5)),
           ],
-          const SizedBox(height: 4),
-          Container(width: 32, height: 2, color: accentColor, margin: const EdgeInsets.only(top: 12)),
+          Container(width: 32, height: 2, color: accentColor, margin: const EdgeInsets.only(top: 14)),
         ],
       ),
     );
   }
 
   Widget _buildFocusCard(Map<String, dynamic> dayView, ZenThemeTokens t) {
-    final motivation = (dayView['motivation'] as Map<String, dynamic>?) ?? {};
+    final motivation = _asMap(dayView['motivation']) ?? {};
     final focusPoints = ((motivation['focus_points'] as List?) ?? []).cast<String>();
-    final targets = (dayView['targets'] as Map<String, dynamic>?) ?? {};
+    final targets = _asMap(dayView['targets']) ?? {};
     final protein = targets['protein_g'];
     final water = targets['water_ml'];
     final calories = targets['calories_kcal'];
@@ -1022,15 +1178,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           const SizedBox(width: 12),
           GestureDetector(
             onTap: () async {
-              final err = await state.analyzeDay(state.selectedDate);
-              if (err != null && mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(err),
-                    backgroundColor: t.dangerFill,
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
+              final today = state.logicalToday ?? state.selectedDate;
+              if (state.selectedDate == today) {
+                await state.handleNightSubmit(context);
+              } else {
+                final err = await state.analyzeDay(state.selectedDate);
+                if (err != null && mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(err),
+                      backgroundColor: t.dangerFill,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
               }
             },
             child: Container(
@@ -1547,36 +1708,65 @@ class _EntryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final status = (log['extraction_status'] as String?) ?? 'done';
-    final extracted = log['extracted'] as Map<String, dynamic>?;
-    final overrides = (log['overrides'] as Map<String, dynamic>?) ?? {};
-    final id = log['id'] as String? ?? '';
+    // ── Sync state (offline-first §8.1) ──────────────────────────────────────
+    final syncState = (log['sync_state'] as String?);     // queued | syncing | failed | synced | null
+    final isQueued  = syncState == 'queued';
+    final isSyncing = syncState == 'syncing';
+    final isFailed  = syncState == 'failed';
+    final editPending = log['edit_pending'] == true;
+    final failReason  = log['fail_reason'] as String?;
+
+    // ── Extraction state (server-side) ───────────────────────────────────────
+    final extractionStatus = (log['extraction_status'] as String?) ?? 'done';
+    final extracted = _asMap(log['extracted']);
+    final overrides = _asMap(log['overrides']) ?? {};
+    final id   = log['id'] as String? ?? log['client_id'] as String? ?? '';
     final text = log['text'] as String? ?? '';
     final time = log['time_display'] as String? ?? '';
 
-    final proteinG = overrides['protein_g'] ?? (extracted?['nutrition'] as Map?)?['protein_g'];
-    final calKcal = overrides['calories_kcal'] ?? (extracted?['nutrition'] as Map?)?['calories_kcal'];
-    final hydraML = overrides['hydration_ml'] ?? extracted?['hydration_ml'];
-    final workout = extracted?['workout'] as Map<String, dynamic>?;
-    final goalAlignment = (extracted?['goal_alignment'] as Map<String, dynamic>?)?['rating'] as String?;
+    // Nutrition chips (only for synced+done entries)
+    final nutrition = _asMap(extracted?['nutrition']);
+    final proteinG = overrides['protein_g'] ?? nutrition?['protein_g'];
+    final calKcal  = overrides['calories_kcal'] ?? nutrition?['calories_kcal'];
+    final hydraML  = overrides['hydration_ml'] ?? extracted?['hydration_ml'];
+    final workout  = _asMap(extracted?['workout']);
+    final goalAlignment = _asMap(extracted?['goal_alignment'])?['rating'] as String?;
 
+    // ── Left edge bar colour ──────────────────────────────────────────────────
     Color edgeColor;
-    if (goalAlignment == 'good') edgeColor = t.successFill;
-    else if (goalAlignment == 'poor') edgeColor = t.dangerFill;
-    else if (goalAlignment == 'neutral') edgeColor = t.inkFaint;
-    else edgeColor = Colors.transparent;
+    if (isQueued || isSyncing) {
+      edgeColor = t.inkFaint;
+    } else if (isFailed) {
+      edgeColor = t.dangerFill;
+    } else if (goalAlignment == 'good') {
+      edgeColor = t.successFill;
+    } else if (goalAlignment == 'poor') {
+      edgeColor = t.dangerFill;
+    } else if (goalAlignment == 'neutral') {
+      edgeColor = t.inkFaint;
+    } else {
+      edgeColor = Colors.transparent;
+    }
+
+    // ── Background tint ───────────────────────────────────────────────────────
+    final bgColor = isFailed ? t.dangerTint : t.surface;
+
+    // ── Border style (dashed for queued) ─────────────────────────────────────
+    // Flutter doesn't support dashed borders natively; simulate with a lighter
+    // border colour for queued entries to give a "muted / waiting" feel.
+    final borderColor = (isQueued || isSyncing) ? t.inkFaint.withValues(alpha: 0.35) : (isFailed ? t.dangerFill.withValues(alpha: 0.4) : t.line);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: t.surface,
+        color: bgColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: t.line, width: 1),
+        border: Border.all(color: borderColor, width: 1),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Left edge bar (goal alignment color)
+          // ── Left edge bar ────────────────────────────────────────────────────
           Container(
             width: 3,
             decoration: BoxDecoration(
@@ -1593,11 +1783,13 @@ class _EntryRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // ── Time row + actions ──────────────────────────────────────
                   Row(
                     children: [
                       Text(time, style: TextStyle(color: t.inkFaint, fontSize: 12, fontWeight: FontWeight.w500)),
                       const Spacer(),
-                      if (editable) ...[
+                      // For failed entries always show edit/delete
+                      if (editable || isFailed) ...[
                         _IconButton(
                           icon: Icons.edit_outlined,
                           color: t.inkFaint,
@@ -1614,7 +1806,91 @@ class _EntryRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
                   Text(text, style: TextStyle(color: t.ink, fontSize: 14, height: 1.45)),
-                  if (status == 'pending') ...[
+
+                  // ── §8.1 — Queued state ──────────────────────────────────────
+                  if (isQueued) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        _SyncChip(
+                          icon: Icons.cloud_off_rounded,
+                          label: 'Queued',
+                          t: t,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Saved on this phone · syncs automatically',
+                      style: TextStyle(color: t.inkFaint, fontSize: 11),
+                    ),
+                  ]
+                  // ── §8.1 — Syncing state ─────────────────────────────────────
+                  else if (isSyncing) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        _SyncChip(
+                          spinner: true,
+                          label: 'Syncing…',
+                          t: t,
+                        ),
+                      ],
+                    ),
+                  ]
+                  // ── §8.1 — Failed state ──────────────────────────────────────
+                  else if (isFailed) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      "Couldn't sync${failReason != null ? ': $failReason' : ''}",
+                      style: TextStyle(color: t.dangerText, fontSize: 12, height: 1.3),
+                    ),
+                  ]
+                  // ── §8.1 — Edit queued on a synced entry ─────────────────────
+                  else if (editPending) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        _SyncChip(
+                          icon: Icons.edit_note_rounded,
+                          label: 'Edit queued',
+                          t: t,
+                        ),
+                      ],
+                    ),
+                    // Show old extraction values dimmed / labelled
+                    if (proteinG != null || calKcal != null || hydraML != null || workout != null) ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          if (proteinG != null) _ExtractionChip(
+                            label: '${(proteinG as num).toStringAsFixed(0)} g protein (old)',
+                            bgColor: t.surfaceAlt,
+                            textColor: t.inkFaint,
+                          ),
+                          if (calKcal != null) _ExtractionChip(
+                            label: '${(calKcal as num).toStringAsFixed(0)} kcal (old)',
+                            bgColor: t.surfaceAlt,
+                            textColor: t.inkFaint,
+                          ),
+                          if (hydraML != null) _ExtractionChip(
+                            label: '${(hydraML as num).toStringAsFixed(0)} ml (old)',
+                            bgColor: t.surfaceAlt,
+                            textColor: t.inkFaint,
+                          ),
+                          if (workout != null) _ExtractionChip(
+                            label: '${workout['type'] ?? 'Workout'} (old)',
+                            bgColor: t.surfaceAlt,
+                            textColor: t.inkFaint,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ]
+                  // ── Normal server-side extraction states ─────────────────────
+                  else if (extractionStatus == 'pending') ...[
                     const SizedBox(height: 8),
                     Row(
                       children: [
@@ -1623,7 +1899,7 @@ class _EntryRow extends StatelessWidget {
                         Text('Reading…', style: TextStyle(color: t.inkFaint, fontSize: 12)),
                       ],
                     ),
-                  ] else if (status == 'failed') ...[
+                  ] else if (extractionStatus == 'failed') ...[
                     const SizedBox(height: 8),
                     Row(
                       children: [
@@ -1637,7 +1913,7 @@ class _EntryRow extends StatelessWidget {
                         ),
                       ],
                     ),
-                  ] else if (status == 'done') ...[
+                  ] else if (extractionStatus == 'done') ...[
                     if (proteinG != null || calKcal != null || hydraML != null || workout != null) ...[
                       const SizedBox(height: 8),
                       Wrap(
@@ -1672,6 +1948,49 @@ class _EntryRow extends StatelessWidget {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Sync state chip (§8.1) ──────────────────────────────────────────────────
+
+class _SyncChip extends StatelessWidget {
+  final IconData? icon;
+  final bool spinner;
+  final String label;
+  final ZenThemeTokens t;
+
+  const _SyncChip({
+    this.icon,
+    this.spinner = false,
+    required this.label,
+    required this.t,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: t.surfaceAlt,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: t.line),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (spinner)
+            SizedBox(
+              width: 10,
+              height: 10,
+              child: CircularProgressIndicator(strokeWidth: 1.5, color: t.inkMuted),
+            )
+          else if (icon != null)
+            Icon(icon, size: 12, color: t.inkMuted),
+          const SizedBox(width: 5),
+          Text(label, style: TextStyle(color: t.inkMuted, fontSize: 11.5, fontWeight: FontWeight.w600)),
         ],
       ),
     );

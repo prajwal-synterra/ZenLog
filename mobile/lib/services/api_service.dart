@@ -176,6 +176,24 @@ class ApiService {
     return null;
   }
 
+  /// GET /api/quotes/{date} — returns 24h daily quote from DB cache or RapidAPI
+  Future<Map<String, dynamic>?> getDailyQuote(String date) async {
+    try {
+      final res = await http
+          .get(
+            Uri.parse('${ApiConstants.baseUrl}/api/quotes/$date'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 8));
+
+      if (res.statusCode == 200) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+
   /// POST /api/days/{date}/analyze — trigger on-demand Gemini verdict
   Future<({bool success, String? error, Map<String, dynamic>? data})> analyzeDay(String date) async {
     try {
@@ -223,6 +241,44 @@ class ApiService {
       }
     } catch (_) {}
     return null;
+  }
+
+  /// Used by SyncEngine: sends client_id for idempotency (§7.3 / C1) and the
+  /// original timestamp so the server applies the 4 AM date rule correctly.
+  Future<({bool ok, LogEntryModel? model, String? error})> createLogWithDetails(
+    String text, {
+    String? clientId,
+    DateTime? timestamp,
+  }) async {
+    try {
+      final body = <String, dynamic>{
+        'text': text,
+        if (clientId != null) 'client_id': clientId,
+        if (timestamp != null) 'timestamp': timestamp.toIso8601String(),
+      };
+      final res = await http
+          .post(
+            Uri.parse('${ApiConstants.baseUrl}${ApiConstants.logs}'),
+            headers: _headers,
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        final model = LogEntryModel.fromJson(jsonDecode(res.body));
+        return (ok: true, model: model, error: null);
+      }
+      // Extract error detail from body
+      String detail = 'Server error (${res.statusCode})';
+      try {
+        final b = jsonDecode(res.body);
+        if (b is Map && b['detail'] != null) detail = b['detail'].toString();
+        if (b is Map && b['message'] != null) detail = b['message'].toString();
+      } catch (_) {}
+      return (ok: false, model: null, error: detail);
+    } catch (e) {
+      return (ok: false, model: null, error: e.toString());
+    }
   }
 
   Future<LogEntryModel?> updateLog(String logId, String newText) async {

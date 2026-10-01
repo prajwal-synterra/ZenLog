@@ -43,6 +43,9 @@ def _invalidate_reports(database: Database, user_id: str, day: str) -> None:
     })
 
 
+from fastapi.responses import JSONResponse
+
+
 def serialize_log(document: dict) -> LogResponse:
     local_timestamp = document["timestamp"].astimezone(IST)
     return LogResponse(
@@ -53,6 +56,7 @@ def serialize_log(document: dict) -> LogResponse:
         time_display=local_timestamp.strftime("%I:%M %p IST"),
         text=document["text"],
         created_at=document["created_at"],
+        client_id=document.get("client_id"),
     )
 
 
@@ -64,11 +68,38 @@ def create_log(
     database: Database = Depends(get_database),
 ):
     user_id = auth_context["user"]["user_id"]
+
+    # C1: Check idempotency with client_id (replay returns existing with 200)
+    if payload.client_id:
+        existing = database["daily_logs"].find_one({
+            "user_id": user_id,
+            "client_id": payload.client_id,
+        })
+        if existing is not None:
+            serialized = serialize_log(existing).model_dump(mode="json")
+            return JSONResponse(status_code=status.HTTP_200_OK, content=serialized)
+
     local_timestamp = payload.timestamp or datetime.now(IST)
+
+    # C3: Timestamp rules (clamp up to 6 hours future for clock/timezone skew, up to 14 days past)
+    now_ist = datetime.now(IST)
+    if local_timestamp > now_ist:
+        if local_timestamp <= now_ist + timedelta(hours=6):
+            local_timestamp = now_ist
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail="Timestamp cannot be more than 6 hours in the future.",
+            )
+    if local_timestamp < now_ist - timedelta(days=14):
+        raise HTTPException(
+            status_code=422,
+            detail="Timestamp cannot be older than 14 days.",
+        )
 
     # Reject future-dated logs (explicit date in future)
     if payload.date:
-        today = datetime.now(IST).date()
+        today = now_ist.date()
         if payload.date > today:
             raise HTTPException(status_code=422, detail="Cannot log entries for future dates.")
         day_key = payload.date.isoformat()
@@ -82,6 +113,7 @@ def create_log(
 
     document = {
         "user_id": user_id,
+        "client_id": payload.client_id,
         "date": day_key,
         "timestamp": local_timestamp.astimezone(timezone.utc),
         "text": payload.text,
@@ -98,6 +130,7 @@ def create_log(
     result = database["daily_logs"].insert_one(document)
     document["_id"] = result.inserted_id
     log_id = str(result.inserted_id)
+
 
     _invalidate_reports(database, user_id, day_key)
 

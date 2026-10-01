@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/theme/zen_colors.dart';
 import '../../services/auth_storage.dart';
+import '../../services/connection_monitor.dart';
+import '../../services/sync_engine.dart';
 import '../../state/zen_state.dart';
 import '../auth/landing_screen.dart';
+
 
 class ProfileScreen extends StatefulWidget {
   final ZenState state;
@@ -159,6 +162,48 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _logout() async {
     final t = context.zen;
+    final queued = SyncEngine().queuedCount;
+
+    if (queued > 0) {
+      // Dialog P40 (§8.5)
+      final action = await showDialog<String>(
+        context: context,
+        builder: (dlgCtx) => AlertDialog(
+          title: const Text('Unsynced entries'),
+          content: Text('You have $queued unsynced entr${queued == 1 ? 'y' : 'ies'}. If you log out now they will be lost.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dlgCtx, 'cancel'),
+              child: Text('Cancel', style: TextStyle(color: t.inkMuted)),
+            ),
+            if (ConnectionMonitor().current.state == ConnectionStateEnum.connected)
+              ElevatedButton(
+                onPressed: () => Navigator.pop(dlgCtx, 'sync_first'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: t.ink,
+                  foregroundColor: t.onInk,
+                ),
+                child: const Text('Sync first'),
+              ),
+            TextButton(
+              onPressed: () => Navigator.pop(dlgCtx, 'logout_anyway'),
+              child: Text('Log out anyway', style: TextStyle(color: t.dangerFill, fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+      );
+
+      if (action == 'sync_first') {
+        await SyncEngine().runSync('manual');
+        if (SyncEngine().queuedCount == 0 && mounted) {
+          await _performLogout();
+        }
+      } else if (action == 'logout_anyway' && mounted) {
+        await _performLogout();
+      }
+      return;
+    }
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dlgCtx) => AlertDialog(
@@ -183,15 +228,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
 
     if (confirmed == true && mounted) {
-      await AuthStorage.clearLogin();
-      if (mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const LandingScreen()),
-          (_) => false,
-        );
-      }
+      await _performLogout();
     }
   }
+
+  Future<void> _performLogout() async {
+    await AuthStorage.handleUserLogout();
+    if (mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LandingScreen()),
+        (_) => false,
+      );
+    }
+  }
+
 
   void _saveGoal(String goal) {
     final user = widget.state.user;
@@ -482,50 +532,186 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
               const SizedBox(height: 20),
 
-              // ── Footer ───────────────────────────────────────────────────────
-              Row(
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: _serverOk ? t.successFill : t.dangerFill,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    _serverOk ? 'Server connected' : 'Can\'t reach server',
-                    style: TextStyle(
-                      color: _serverOk ? t.successText : t.dangerText,
-                      fontSize: 12,
-                    ),
-                  ),
-                  if (!_serverOk) ...[
-                    const SizedBox(width: 10),
-                    GestureDetector(
-                      onTap: _checkHealth,
-                      child: Text(
-                        'Retry',
-                        style: TextStyle(
-                          color: t.ink,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          decoration: TextDecoration.underline,
-                        ),
-                      ),
-                    ),
-                  ],
-                  const Spacer(),
-                  Text('ZenLog v2.0', style: TextStyle(color: t.inkFaint, fontSize: 11)),
-                ],
-              ),
+              // ── Section 8.4 Connection Card ──────────────────────────────────
+              _buildConnectionCard(t),
             ],
           ),
         ),
       ),
     );
   }
+
+  Widget _buildConnectionCard(ZenThemeTokens t) {
+    return ListenableBuilder(
+      listenable: SyncEngine(),
+      builder: (context, _) {
+        return StreamBuilder<ConnectionSnapshot>(
+          stream: ConnectionMonitor().stream,
+          initialData: ConnectionMonitor().current,
+          builder: (context, snapshot) {
+            final conn = snapshot.data ?? ConnectionMonitor().current;
+            final queuedCount = SyncEngine().queuedCount;
+            final isSyncing = SyncEngine().isSyncing;
+
+            Color dotColor;
+            String statusTitle;
+            switch (conn.state) {
+              case ConnectionStateEnum.connected:
+                dotColor = t.successFill;
+                statusTitle = 'Connected to server';
+                break;
+              case ConnectionStateEnum.disconnected:
+                dotColor = t.dangerFill;
+                statusTitle = 'Backend not reachable';
+                break;
+              case ConnectionStateEnum.authRequired:
+                dotColor = t.warnFill;
+                statusTitle = 'Session ended. Log in again.';
+                break;
+              case ConnectionStateEnum.unknown:
+                dotColor = t.inkFaint;
+                statusTitle = 'Checking connection…';
+                break;
+            }
+
+            return Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: t.surface,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: t.line),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'CONNECTION',
+                    style: TextStyle(
+                      color: t.inkFaint,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: dotColor,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          statusTitle,
+                          style: TextStyle(
+                            color: t.ink,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      if (conn.state == ConnectionStateEnum.disconnected)
+                        GestureDetector(
+                          onTap: () {
+                            ConnectionMonitor().probeNow();
+                            SyncEngine().runSync('manual');
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: t.surfaceAlt,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: t.line),
+                            ),
+                            child: Text(
+                              'Retry',
+                              style: TextStyle(
+                                color: t.ink,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        )
+                      else if (queuedCount > 0)
+                        GestureDetector(
+                          onTap: isSyncing
+                              ? null
+                              : () => SyncEngine().runSync('manual'),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: isSyncing ? t.surfaceAlt : t.ink,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              isSyncing ? 'Syncing…' : 'Sync now',
+                              style: TextStyle(
+                                color: isSyncing ? t.inkMuted : t.onInk,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  if (conn.state == ConnectionStateEnum.disconnected) ...[
+                    const SizedBox(height: 6),
+                    GestureDetector(
+                      onLongPress: () {
+                        Clipboard.setData(ClipboardData(text: conn.debugString));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Copied debug info: ${conn.debugString}'),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                      child: Text(
+                        'Reason: ${conn.message}',
+                        style: TextStyle(color: t.inkMuted, fontSize: 12, height: 1.3),
+                      ),
+                    ),
+                  ],
+                  if (conn.clockSkewMin != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Phone clock is ${conn.clockSkewMin} min off. Entry times may be wrong.',
+                      style: TextStyle(color: t.warnFill, fontSize: 11, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      if (queuedCount > 0)
+                        Text(
+                          isSyncing ? 'Syncing entries…' : '$queuedCount entr${queuedCount == 1 ? 'y' : 'ies'} waiting to sync',
+                          style: TextStyle(color: t.inkFaint, fontSize: 11),
+                        )
+                      else
+                        Text(
+                          'ZenLog v2.0 · Offline Ready',
+                          style: TextStyle(color: t.inkFaint, fontSize: 11),
+                        ),
+                      const Spacer(),
+                      Text('ZenLog v2.0', style: TextStyle(color: t.inkFaint, fontSize: 11)),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
 
   String _initials(String name) {
     final parts = name.trim().split(' ');

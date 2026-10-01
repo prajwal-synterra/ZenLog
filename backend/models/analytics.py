@@ -35,6 +35,8 @@ class PeriodStatsResponse(BaseModel):
     protein_target_adherence_percent: float | None = None
     workout_days: int
     average_hydration_ml: float | None = None
+    average_sleep_hours: float | None = None
+    average_sleep_minutes: int | None = None
 
 
 class InsightResponse(BaseModel):

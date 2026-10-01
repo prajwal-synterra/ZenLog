@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../core/theme/zen_colors.dart';
 import '../../services/api_service.dart';
+import '../../services/sleep_wake_storage.dart';
 import '../../models/day_record_model.dart';
 
 class SleepScannerScreen extends StatefulWidget {
@@ -44,6 +45,9 @@ class _SleepScannerScreenState extends State<SleepScannerScreen>
 
     try {
       final record = await _api.submitSleep(_sleepTime);
+      final now = DateTime.now();
+      final todayStr = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      await SleepWakeStorage.saveNightSleepNow(todayDate: todayStr, sleepTime: now);
       setState(() {
         _resultRecord = record;
         _isProcessing = false;

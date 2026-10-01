@@ -82,7 +82,6 @@ class _LoginScreenState extends State<LoginScreen> {
         await AuthStorage.saveCredentials(
           username: username,
           phone: phone,
-          displayName: (result['user'] as Map?)?['name'] as String?,
         );
       }
       if (!mounted) return;

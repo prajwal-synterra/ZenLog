@@ -23,6 +23,7 @@ from backend.services.progress_engine import (
     compute_day_totals,
     compute_progress,
 )
+from backend.services.quote_service import get_or_create_daily_quote
 
 
 router = APIRouter(prefix="/api/days", tags=["day_view"])
@@ -48,11 +49,13 @@ def _serialize_entry(doc: dict) -> dict:
         "overrides": doc.get("overrides") or {},
         "created_at": doc.get("created_at"),
         "updated_at": doc.get("updated_at"),
+        "client_id": doc.get("client_id"),
     }
 
 
-def _build_motivation(targets: dict, day_of_week: int) -> dict:
-    """Deterministic motivational card for future days. No AI."""
+
+def _build_motivation(targets: dict, day_of_week: int, quote_data: dict | None = None) -> dict:
+    """Motivational card for future days with 24h cached quote."""
     days_map = {0: "Monday", 1: "Tuesday", 2: "Wednesday", 3: "Thursday",
                 4: "Friday", 5: "Saturday", 6: "Sunday"}
     day_name = days_map.get(day_of_week, "Today")
@@ -68,9 +71,15 @@ def _build_motivation(targets: dict, day_of_week: int) -> dict:
         "mindfulness": "Track your habits and mood entries. Quality > quantity.",
     }.get(goal, "Stay consistent with your targets.")
 
+    quote_text = quote_data.get("quote") if quote_data else None
+    author = quote_data.get("author") if quote_data else None
+    message = f"\"{quote_text}\" — {author}" if quote_text else "Your targets are set. Start strong and the rest of the day follows."
+
     return {
         "headline": f"{day_name}: make it count.",
-        "message": "Your targets are set. Start strong and the rest of the day follows.",
+        "message": message,
+        "quote": quote_text,
+        "author": author,
         "focus_points": [goal_line, f"Drink {water}ml water throughout the day."],
         "plan": {
             "protein_g": protein,
@@ -92,6 +101,9 @@ def get_day_view(
     user_id = user["user_id"]
     day_key = day.isoformat()
     today = _logical_today()
+
+    # Get 24-hour motivational quote for this day (cached in DB for 24h, or RapidAPI, or fallback)
+    daily_quote = get_or_create_daily_quote(database, user_id, day_key)
 
     # Lazy-close any open past days (cheap, idempotent)
     if day < today:
@@ -122,7 +134,8 @@ def get_day_view(
             "rating": None,
             "verdict": None,
             "verdict_status": "none",
-            "motivation": _build_motivation(targets, day.weekday()),
+            "motivation": _build_motivation(targets, day.weekday(), daily_quote),
+            "quote": daily_quote,
         }
 
     # Load all entries for this day
@@ -202,6 +215,7 @@ def get_day_view(
         "verdict": verdict,
         "verdict_status": verdict_status,
         "motivation": None,
+        "quote": daily_quote,
     }
 
 

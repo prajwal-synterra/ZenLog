@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../core/theme/zen_colors.dart';
+import '../services/morning_flow_service.dart';
 import '../state/zen_state.dart';
 import 'home/home_screen.dart';
 import 'calendar/calendar_screen.dart';
@@ -13,17 +14,36 @@ class MainScaffold extends StatefulWidget {
   State<MainScaffold> createState() => _MainScaffoldState();
 }
 
-class _MainScaffoldState extends State<MainScaffold> {
+class _MainScaffoldState extends State<MainScaffold> with WidgetsBindingObserver {
   final ZenState _state = ZenState();
   int _currentIndex = 0;
 
   @override
   void initState() {
     super.initState();
-    _state.init();
+    WidgetsBinding.instance.addObserver(this);
+    _state.init().then((_) {
+      if (mounted) {
+        MorningFlowService.evaluate(context, _state);
+      }
+    });
     _state.addListener(() {
       if (mounted) setState(() {});
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState lifecycleState) {
+    if (lifecycleState == AppLifecycleState.resumed) {
+      MorningFlowService.evaluate(context, _state);
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _state.dispose();
+    super.dispose();
   }
 
   @override

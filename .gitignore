@@ -78,6 +78,7 @@ test_*.local.py
 # Flutter Symbolication & Obfuscation
 app.*.symbols
 app.*.map.json
+flutter_*.png
 
 # ─── Android ──────────────────────────────────────────────────────────────────
 **/android/.gradle/

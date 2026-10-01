@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/zen_colors.dart';
 import '../../services/api_service.dart';
+import '../../services/quote_storage.dart';
+import '../../services/sleep_wake_storage.dart';
 import '../../state/zen_state.dart';
+
 
 // ZenLog v3 §6.8 – Days (calendar) screen
 // Ink & Paper design: month grid, day summary card, "Open day" navigation.
@@ -75,6 +78,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   String _dateStr(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  Future<String> _getSleepDurationForDay(DateTime day) async {
+    final wakeDate = _dateStr(day);
+    final prev = day.subtract(const Duration(days: 1));
+    final nightDate = _dateStr(prev);
+    final dur = await SleepWakeStorage.calculateSleepDuration(
+      wakeDate: wakeDate,
+      nightDate: nightDate,
+    );
+    return SleepWakeStorage.formatDuration(dur);
+  }
 
   void _goToToday() {
     final now = DateTime.now();
@@ -358,13 +372,20 @@ class _CalendarScreenState extends State<CalendarScreen> {
             const SizedBox(height: 14),
 
             // Stats
-            Row(
+            Wrap(
+              spacing: 16,
+              runSpacing: 10,
               children: [
                 _MiniStat(label: 'Protein', value: '${proteinActual.toStringAsFixed(0)} / ${proteinTarget.toStringAsFixed(0)} g', t: t),
-                const SizedBox(width: 16),
                 _MiniStat(label: 'Water', value: '${waterActual.toStringAsFixed(0)} ml', t: t),
-                const SizedBox(width: 16),
                 _MiniStat(label: 'Workout', value: workoutDone ? 'Done' : 'None', t: t),
+                FutureBuilder<String>(
+                  future: _getSleepDurationForDay(day),
+                  builder: (context, snapshot) {
+                    final sleepStr = snapshot.data ?? '—';
+                    return _MiniStat(label: 'Sleep', value: sleepStr, t: t);
+                  },
+                ),
               ],
             ),
 
@@ -377,7 +398,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
             ),
             const SizedBox(height: 6),
             ...logs.take(2).map((log) {
-              final logMap = log as Map<String, dynamic>;
+              final logMap = log is Map<String, dynamic>
+                  ? log
+                  : (log is Map ? Map<String, dynamic>.from(log) : <String, dynamic>{});
               return Padding(
                 padding: const EdgeInsets.only(bottom: 4),
                 child: Text(
@@ -388,6 +411,70 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 ),
               );
             }).toList(),
+
+            FutureBuilder<DailyQuote>(
+              future: QuoteStorage.getOrFetchQuote(
+                _dateStr(day),
+                fetchRemote: (d) => ApiService().getDailyQuote(d),
+              ),
+              builder: (context, snapshot) {
+                if (snapshot.hasData) {
+                  final q = snapshot.data!;
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 10, bottom: 6),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: t.surfaceAlt,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: t.line),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.format_quote_rounded, size: 14, color: t.accent),
+                              const SizedBox(width: 4),
+                              Text(
+                                'DAILY QUOTE',
+                                style: TextStyle(
+                                  color: t.inkFaint,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            '“${q.quote}”',
+                            style: GoogleFonts.fraunces(
+                              color: t.ink,
+                              fontSize: 13,
+                              fontStyle: FontStyle.italic,
+                              height: 1.4,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '— ${q.author}',
+                            style: TextStyle(
+                              color: t.inkMuted,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+                return const SizedBox.shrink();
+              },
+            ),
 
             const SizedBox(height: 16),
 

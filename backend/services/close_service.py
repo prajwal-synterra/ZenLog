@@ -11,10 +11,25 @@ from backend.models.log import IST
 from backend.services.progress_engine import compute_day_score, compute_day_totals
 
 
+def _calculate_default_calories(user: dict) -> float:
+    cal = user.get("daily_calorie_target")
+    if cal and float(cal) > 0:
+        return float(cal)
+    bw = float(user.get("body_weight_kg") or 60.0)
+    goal = user.get("goal", "muscle_gain")
+    if goal == "muscle_gain":
+        target = round(bw * 35.0)
+    elif goal == "fat_loss":
+        target = round(bw * 25.0)
+    else:
+        target = round(bw * 30.0)
+    return max(1500.0, min(3500.0, float(target)))
+
+
 def _get_targets(user: dict) -> dict:
     return {
         "protein_g": user.get("daily_protein_target_g") or 0,
-        "calories_kcal": user.get("daily_calorie_target"),
+        "calories_kcal": _calculate_default_calories(user),
         "water_ml": user.get("daily_water_target_ml") or 3000,
         "weekly_workout_target": user.get("weekly_workout_target") or 3,
         "goal": user.get("goal", "muscle_gain"),
@@ -25,7 +40,7 @@ def get_user_targets_snapshot(user: dict) -> dict:
     """Return a snapshot of targets to freeze at close time."""
     return {
         "protein_g": user.get("daily_protein_target_g"),
-        "calories_kcal": user.get("daily_calorie_target"),
+        "calories_kcal": _calculate_default_calories(user),
         "water_ml": user.get("daily_water_target_ml", 3000),
         "weekly_workout_target": user.get("weekly_workout_target", 3),
         "goal": user.get("goal", "muscle_gain"),

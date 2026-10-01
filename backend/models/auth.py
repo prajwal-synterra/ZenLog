@@ -28,7 +28,10 @@ class LoginResponse(BaseModel):
     token_type: str = "bearer"
     expires_at: datetime
     user: UserResponse
+    server_time: str | None = None
+    server_today: str | None = None
+    day_cutoff_hours: int = 4
 
 
 class LogoutResponse(BaseModel):
-    detail: str
+    detail: str

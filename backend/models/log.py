@@ -11,6 +11,7 @@ class LogCreateRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
     text: str = Field(min_length=1, max_length=10000)
+    client_id: str | None = None
     date: date_type | None = None
     timestamp: datetime | None = None
 
@@ -25,10 +26,9 @@ class LogCreateRequest(BaseModel):
 
     @model_validator(mode="after")
     def date_matches_timestamp(self):
-        if (self.date is None) != (self.timestamp is None):
-            raise ValueError("date and timestamp must be provided together.")
-        if self.timestamp and self.timestamp.date() != self.date:
-            raise ValueError("date must match the timestamp's date in IST.")
+        if self.date is not None and self.timestamp is not None:
+            if self.timestamp.date() != self.date:
+                raise ValueError("date must match the timestamp's date in IST.")
         return self
 
 
@@ -67,3 +67,4 @@ class LogResponse(BaseModel):
     time_display: str
     text: str
     created_at: datetime
+    client_id: str | None = None

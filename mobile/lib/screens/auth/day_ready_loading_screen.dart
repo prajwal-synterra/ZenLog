@@ -83,84 +83,85 @@ class _DayReadyLoadingScreenState extends State<DayReadyLoadingScreen>
     return Scaffold(
       backgroundColor: t.bg,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 28),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Spacer(flex: 2),
-
-              // Animated ring
-              AnimatedBuilder(
-                animation: _pulseController,
-                builder: (context, child) {
-                  final scale = 1.0 + (_pulseController.value * 0.06);
-                  return Transform.scale(
-                    scale: scale,
-                    child: Container(
-                      width: 80,
-                      height: 80,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: t.surfaceAlt,
-                        border: Border.all(color: t.line, width: 1.5),
-                      ),
-                      child: Center(
-                        child: Text(
-                          'ZL',
-                          style: GoogleFonts.fraunces(
-                            fontSize: 28,
-                            fontWeight: FontWeight.w600,
-                            color: t.ink,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Animated ring
+                AnimatedBuilder(
+                  animation: _pulseController,
+                  builder: (context, child) {
+                    final scale = 1.0 + (_pulseController.value * 0.06);
+                    return Transform.scale(
+                      scale: scale,
+                      child: Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: t.surfaceAlt,
+                          border: Border.all(color: t.line, width: 1.5),
+                        ),
+                        child: Center(
+                          child: Text(
+                            'ZL',
+                            style: GoogleFonts.fraunces(
+                              fontSize: 28,
+                              fontWeight: FontWeight.w600,
+                              color: t.ink,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  );
-                },
-              ),
-
-              const SizedBox(height: 36),
-
-              Text(
-                'Setting things up…',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: t.ink,
+                    );
+                  },
                 ),
-              ),
 
-              const SizedBox(height: 8),
+                const SizedBox(height: 36),
 
-              Text(
-                'Loading your journal.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: t.inkMuted,
-                  height: 1.4,
-                ),
-              ),
-
-              const SizedBox(height: 32),
-
-              // Progress Bar
-              ClipRRect(
-                borderRadius: BorderRadius.circular(999),
-                child: SizedBox(
-                  width: 160,
-                  height: 4,
-                  child: LinearProgressIndicator(
-                    value: _progress,
-                    backgroundColor: t.surfaceAlt,
-                    valueColor: AlwaysStoppedAnimation<Color>(t.accent),
+                Text(
+                  'Setting things up…',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: t.ink,
                   ),
                 ),
-              ),
 
-              const Spacer(flex: 3),
-            ],
+                const SizedBox(height: 8),
+
+                Text(
+                  'Loading your journal.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: t.inkMuted,
+                    height: 1.4,
+                  ),
+                ),
+
+                const SizedBox(height: 32),
+
+                // Progress Bar
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: SizedBox(
+                    width: 160,
+                    height: 4,
+                    child: LinearProgressIndicator(
+                      value: _progress,
+                      backgroundColor: t.surfaceAlt,
+                      valueColor: AlwaysStoppedAnimation<Color>(t.accent),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
