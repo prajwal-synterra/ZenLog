@@ -47,3 +47,39 @@ class InsightResponse(BaseModel):
     generated_at: datetime
     summary: dict
     insight: InsightReport
+
+
+class CachedInsightResponse(BaseModel):
+    status: str  # "fresh" | "stale" | "none"
+    period: str
+    range_start: str
+    range_end: str
+    report: dict | None = None
+    insight: dict | None = None
+    summary: dict = {}
+    generated_at: datetime | None = None
+    input_hash: str | None = None
+    current_hash: str
+    days_logged: int = 0
+    can_generate: bool = False
+    warning: str | None = None
+
+
+class GenerateInsightRequest(BaseModel):
+    force: bool = False
+    anchor: date | None = None
+
+
+class DayVerdictResponse(BaseModel):
+    status: str  # "fresh" | "stale" | "none"
+    day: str
+    verdict: dict | None = None
+    generated_at: datetime | None = None
+    input_hash: str | None = None
+    current_hash: str
+    can_generate: bool = True
+    warning: str | None = None
+
+
+class DayVerdictGenerateRequest(BaseModel):
+    force: bool = False

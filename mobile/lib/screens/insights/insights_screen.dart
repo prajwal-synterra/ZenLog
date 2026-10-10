@@ -30,6 +30,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
   InsightModel? _insight;
   Duration? _localAvgSleep;
   bool _isLoading = false;
+  bool _isGenerating = false;
   String? _error;
 
   @override
@@ -66,6 +67,45 @@ class _InsightsScreenState extends State<InsightsScreen> {
     }
   }
 
+  Future<void> _generateInsight({bool force = false}) async {
+    setState(() {
+      _isGenerating = true;
+    });
+    try {
+      final period = _isWeekly ? 'weekly' : 'monthly';
+      final result = await _api.generateInsight(period, force: force);
+      if (mounted) {
+        if (result != null) {
+          setState(() {
+            _insight = result;
+            _isGenerating = false;
+          });
+          if (result.warning != null && result.warning!.isNotEmpty) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(result.warning!)),
+            );
+          }
+        } else {
+          setState(() {
+            _isGenerating = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not refresh review; keeping previous report.')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isGenerating = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Review generation failed; keeping previous report.')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = context.zen;
@@ -93,7 +133,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   const Spacer(),
                   if (_insight != null)
                     GestureDetector(
-                      onTap: _fetchInsight,
+                      onTap: _isGenerating ? null : () => _generateInsight(force: true),
                       child: Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
@@ -101,7 +141,13 @@ class _InsightsScreenState extends State<InsightsScreen> {
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(color: t.line),
                         ),
-                        child: Icon(Icons.auto_awesome, size: 18, color: t.inkMuted),
+                        child: _isGenerating
+                            ? SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: t.accent),
+                              )
+                            : Icon(Icons.auto_awesome, size: 18, color: t.inkMuted),
                       ),
                     ),
                 ],
@@ -165,9 +211,11 @@ class _InsightsScreenState extends State<InsightsScreen> {
   Widget _buildContent(ZenThemeTokens t) {
     final insight = _insight;
     final stats = insight?.statsSummary ?? {};
-    final daysLogged = (stats['days_logged'] as num?)?.toInt()
-        ?? (stats['completed_days'] as num?)?.toInt()
-        ?? 0;
+    final daysLogged = (insight?.daysLogged != null && insight!.daysLogged > 0)
+        ? insight.daysLogged
+        : ((stats['days_logged'] as num?)?.toInt()
+            ?? (stats['completed_days'] as num?)?.toInt()
+            ?? 0);
     final avgProtein = (stats['average_protein_g'] as num?)?.toDouble();
     final adherence = (stats['protein_target_adherence_percent'] as num?)?.toDouble();
     final workoutDone = (stats['workout_days'] as num?)?.toInt();
@@ -177,7 +225,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
     final alerts = ((insight?.progress?['alerts']) as List?) ?? [];
 
     // AI report gate: need >= 3 days logged
-    final hasEnoughData = daysLogged >= 3;
+    final hasEnoughData = daysLogged >= 3 || (insight?.canGenerate == true);
 
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -319,13 +367,88 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
           if (!hasEnoughData) ...[
             _LockedAICard(daysLogged: daysLogged, t: t),
-          ] else if (insight?.ai == null) ...[
-            _ZenCard(t: t, child: Text(
-              'No report available yet.',
-              style: TextStyle(color: t.inkMuted, fontSize: 14),
-            )),
           ] else ...[
-            _AIReportCard(insight: insight!, t: t),
+            if (insight?.status == 'stale') ...[
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: t.surfaceAlt,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: t.warnFill.withValues(alpha: 0.5)),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, size: 18, color: t.warnFill),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Data changed since last review',
+                        style: TextStyle(color: t.ink, fontSize: 13, fontWeight: FontWeight.w500),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton(
+                      onPressed: _isGenerating ? null : () => _generateInsight(force: true),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: _isGenerating
+                          ? SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: t.accent),
+                            )
+                          : Text(
+                              'Refresh review',
+                              style: TextStyle(color: t.accent, fontWeight: FontWeight.w600, fontSize: 12),
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            if (insight?.ai == null) ...[
+              _ZenCard(
+                t: t,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'No review generated yet for this period.',
+                      style: TextStyle(color: t.inkMuted, fontSize: 14),
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      onPressed: _isGenerating ? null : () => _generateInsight(force: false),
+                      icon: _isGenerating
+                          ? SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: t.bg),
+                            )
+                          : const Icon(Icons.auto_awesome, size: 16),
+                      label: Text(_isGenerating ? 'Generating review…' : 'Generate AI Review'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: t.accent,
+                        foregroundColor: t.bg,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else ...[
+              _AIReportCard(
+                insight: insight!,
+                t: t,
+                isWeekly: _isWeekly,
+                isGenerating: _isGenerating,
+                onRefresh: () => _generateInsight(force: true),
+              ),
+            ],
           ],
         ],
       ),
@@ -554,11 +677,34 @@ class _DashedLinePainter extends CustomPainter {
 
 // ─── AI report card ───────────────────────────────────────────────────────────
 
+String _formatTimeAgo(String isoStr) {
+  if (isoStr.isEmpty) return '';
+  try {
+    final dt = DateTime.parse(isoStr).toLocal();
+    final diff = DateTime.now().difference(dt);
+    if (diff.inSeconds < 60) return 'Updated just now';
+    if (diff.inMinutes < 60) return 'Updated ${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return 'Updated ${diff.inHours}h ago';
+    return 'Updated ${diff.inDays}d ago';
+  } catch (_) {
+    return '';
+  }
+}
+
 class _AIReportCard extends StatelessWidget {
   final InsightModel insight;
   final ZenThemeTokens t;
+  final bool isWeekly;
+  final bool isGenerating;
+  final VoidCallback? onRefresh;
 
-  const _AIReportCard({required this.insight, required this.t});
+  const _AIReportCard({
+    required this.insight,
+    required this.t,
+    this.isWeekly = true,
+    this.isGenerating = false,
+    this.onRefresh,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -582,9 +728,34 @@ class _AIReportCard extends StatelessWidget {
                 children: [
                   Icon(Icons.auto_awesome, size: 14, color: t.accent),
                   const SizedBox(width: 6),
-                  Text('WEEKLY', style: TextStyle(color: t.inkFaint, fontSize: 11, fontWeight: FontWeight.w600, letterSpacing: 0.8)),
+                  Text(
+                    isWeekly ? 'WEEKLY' : 'MONTHLY',
+                    style: TextStyle(
+                      color: t.inkFaint,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (insight.generatedAt.isNotEmpty)
+                    Text(
+                      _formatTimeAgo(insight.generatedAt),
+                      style: TextStyle(color: t.inkFaint, fontSize: 11),
+                    ),
                 ],
               ),
+              if (isGenerating) ...[
+                const SizedBox(height: 10),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(2),
+                  child: LinearProgressIndicator(
+                    minHeight: 2,
+                    backgroundColor: t.surfaceAlt,
+                    valueColor: AlwaysStoppedAnimation<Color>(t.accent),
+                  ),
+                ),
+              ],
               if (summary.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 Text(

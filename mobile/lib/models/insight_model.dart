@@ -9,6 +9,11 @@ class InsightModel {
   final Map<String, dynamic> statsSummary;
   final bool insufficientData;
   final int daysLogged;
+  final String status; // 'fresh' | 'stale' | 'none'
+  final String? warning;
+  final bool canGenerate;
+  final String? inputHash;
+  final String? currentHash;
 
   // v3: raw AI object for flexible access
   final Map<String, dynamic>? ai;
@@ -28,17 +33,23 @@ class InsightModel {
     this.statsSummary = const {},
     this.insufficientData = false,
     this.daysLogged = 0,
+    this.status = 'fresh',
+    this.warning,
+    this.canGenerate = false,
+    this.inputHash,
+    this.currentHash,
     this.ai,
     this.progress,
     this.needs,
   });
 
   factory InsightModel.fromJson(Map<String, dynamic> json) {
-    final bool insufficient = json['insufficient_data'] == true;
     final int logged = (json['days_logged'] as num?)?.toInt() ?? 0;
+    final String status = json['status'] as String? ?? (json['cached'] == true ? 'fresh' : (logged < 3 ? 'none' : 'stale'));
+    final bool insufficient = json['insufficient_data'] == true || (status == 'none' && logged < 3);
 
-    // Try "insight" nested object first, then top-level
-    final insightObj = json['insight'] as Map<String, dynamic>? ?? {};
+    // Try "report" or "insight" nested object, then top-level
+    final insightObj = (json['report'] ?? json['insight']) as Map<String, dynamic>? ?? {};
     final statsObj = json['summary'] is Map<String, dynamic>
         ? json['summary'] as Map<String, dynamic>
         : <String, dynamic>{};
@@ -62,11 +73,16 @@ class InsightModel {
               .toList() ??
           [],
       coachingNotes: insightObj['coaching_notes'] ?? '',
-      cached: json['cached'] ?? false,
-      generatedAt: json['generated_at'] ?? '',
+      cached: json['cached'] ?? (status == 'fresh'),
+      generatedAt: json['generated_at']?.toString() ?? '',
       statsSummary: statsObj,
       insufficientData: insufficient,
       daysLogged: logged,
+      status: status,
+      warning: json['warning'] as String?,
+      canGenerate: json['can_generate'] == true || logged >= 3,
+      inputHash: json['input_hash'] as String?,
+      currentHash: json['current_hash'] as String?,
       ai: insightObj.isNotEmpty ? insightObj : null,
       progress: progressObj,
       needs: needsRaw,

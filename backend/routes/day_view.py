@@ -10,6 +10,8 @@ from datetime import date as date_type, datetime, timedelta, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pymongo.database import Database
 
+from backend.core.insight_hash import input_hash
+from backend.models.analytics import DayVerdictGenerateRequest, DayVerdictResponse
 from backend.models.log import IST
 from backend.routes.dependencies import get_auth_context, get_database
 from backend.services.close_service import (
@@ -248,3 +250,183 @@ def analyze_day(
     )
     background_tasks.add_task(generate_verdict_background, database, user_id, day_key)
     return {"detail": "Analysis started.", "verdict_status": "pending"}
+
+
+def _get_day_verdict_hash(database: Database, user_id: str, day_key: str) -> tuple[str, dict, dict]:
+    user = database["users"].find_one({"user_id": user_id}, {"_id": 0, "phone_number": 0}) or {}
+    targets = get_user_targets_snapshot(user)
+    entries = list(database["daily_logs"].find({"user_id": user_id, "date": day_key}).sort("timestamp", 1))
+    totals = compute_day_totals(entries)
+    day_row = {
+        "logical_date": day_key,
+        "protein_g": totals.get("protein_g", 0.0),
+        "calories": totals.get("calories_kcal", 0.0),
+        "water_ml": totals.get("hydration_ml", 0.0),
+        "workout": totals.get("workout_done", False),
+        "sleep_min": 0,
+    }
+    computed_hash = input_hash([day_row], targets, targets.get("goal", "muscle_gain"), "verdict-v2")
+    return computed_hash, targets, totals
+
+
+@router.get("/{day}/verdict", response_model=DayVerdictResponse)
+def get_day_verdict(
+    day: date_type,
+    auth_context: dict = Depends(get_auth_context),
+    database: Database = Depends(get_database),
+):
+    """
+    Module 5: Returns cached day verdict with status: fresh | stale | none.
+    NEVER calls Gemini.
+    """
+    user_id = auth_context["user"]["user_id"]
+    day_key = day.isoformat()
+    current_hash, _, _ = _get_day_verdict_hash(database, user_id, day_key)
+
+    day_doc = database["days"].find_one({"user_id": user_id, "date": day_key})
+    verdict = (day_doc or {}).get("verdict")
+    cached_hash = (day_doc or {}).get("input_hash")
+    data_changed = (day_doc or {}).get("data_changed_since_review", False)
+
+    if not verdict:
+        # Check insight_cache collection fallback
+        cached = database["insight_cache"].find_one({
+            "user_id": user_id,
+            "kind": "day",
+            "range_start": day_key,
+            "range_end": day_key,
+        })
+        if cached and cached.get("report"):
+            verdict = cached["report"]
+            cached_hash = cached.get("input_hash")
+
+    if not verdict or verdict.get("status") not in ("done", "failed"):
+        return DayVerdictResponse(
+            status="none",
+            day=day_key,
+            verdict=None,
+            generated_at=None,
+            input_hash=None,
+            current_hash=current_hash,
+            can_generate=True,
+        )
+
+    is_fresh = bool(cached_hash and cached_hash == current_hash and not data_changed)
+    status_label = "fresh" if is_fresh else "stale"
+
+    gen_at = verdict.get("generated_at")
+    return DayVerdictResponse(
+        status=status_label,
+        day=day_key,
+        verdict=verdict,
+        generated_at=gen_at,
+        input_hash=cached_hash,
+        current_hash=current_hash,
+        can_generate=True,
+    )
+
+
+@router.post("/{day}/verdict", response_model=DayVerdictResponse)
+async def generate_day_verdict(
+    day: date_type,
+    payload: DayVerdictGenerateRequest = DayVerdictGenerateRequest(),
+    auth_context: dict = Depends(get_auth_context),
+    database: Database = Depends(get_database),
+):
+    """
+    Module 5: Generates / updates the AI day verdict.
+    - If hash matches and force is False and data hasn't changed, returns cached without Gemini.
+    - Enforces 10-minute cooldown on regeneration unless force is True.
+    - Max 10 calls per day.
+    """
+    user_id = auth_context["user"]["user_id"]
+    day_key = day.isoformat()
+    current_hash, targets, totals = _get_day_verdict_hash(database, user_id, day_key)
+    now = datetime.now(timezone.utc)
+
+    day_doc = database["days"].find_one({"user_id": user_id, "date": day_key})
+    if not day_doc:
+        day_doc = close_day_sync(database, user_id, day_key)
+        if not day_doc:
+            database["days"].update_one(
+                {"user_id": user_id, "date": day_key},
+                {"$set": {
+                    "targets_snapshot": targets,
+                    "updated_at": now,
+                }},
+                upsert=True,
+            )
+            day_doc = database["days"].find_one({"user_id": user_id, "date": day_key})
+
+    verdict = (day_doc or {}).get("verdict")
+    cached_hash = (day_doc or {}).get("input_hash")
+    data_changed = (day_doc or {}).get("data_changed_since_review", False)
+
+    # 1. Reuse cache if hash matches and force is False and not marked modified
+    if verdict and verdict.get("status") == "done" and not payload.force:
+        if cached_hash == current_hash and not data_changed:
+            return DayVerdictResponse(
+                status="fresh",
+                day=day_key,
+                verdict=verdict,
+                generated_at=verdict.get("generated_at"),
+                input_hash=cached_hash,
+                current_hash=current_hash,
+                can_generate=True,
+            )
+
+        # 2. Check 10-minute cooldown if recent verdict exists
+        last_gen = verdict.get("generated_at")
+        if last_gen:
+            if isinstance(last_gen, str):
+                try:
+                    last_gen = datetime.fromisoformat(last_gen)
+                except Exception:
+                    last_gen = None
+            if last_gen and last_gen.tzinfo is None:
+                last_gen = last_gen.replace(tzinfo=timezone.utc)
+            if last_gen:
+                elapsed = (now - last_gen).total_seconds()
+                if elapsed < 600:
+                    return DayVerdictResponse(
+                        status="stale",
+                        day=day_key,
+                        verdict=verdict,
+                        generated_at=last_gen,
+                        input_hash=cached_hash,
+                        current_hash=current_hash,
+                        can_generate=True,
+                        warning="Regeneration cooldown active (10 minutes). Showing previous review.",
+                    )
+
+    # Check daily analysis cap
+    count = (day_doc or {}).get("analysis_count_today", 0)
+    if count >= 10:
+        raise HTTPException(status_code=429, detail="Analysis limit reached for this day (10/day).")
+
+    database["days"].update_one(
+        {"user_id": user_id, "date": day_key},
+        {"$inc": {"analysis_count_today": 1},
+         "$set": {
+             "verdict_status": "pending",
+             "data_changed_since_review": False,
+             "updated_at": now,
+         }},
+        upsert=True,
+    )
+
+    await generate_verdict_background(database, user_id, day_key)
+
+    updated_day = database["days"].find_one({"user_id": user_id, "date": day_key}) or {}
+    new_verdict = updated_day.get("verdict")
+    status_label = "fresh" if (new_verdict and new_verdict.get("status") == "done") else "stale"
+
+    return DayVerdictResponse(
+        status=status_label,
+        day=day_key,
+        verdict=new_verdict,
+        generated_at=new_verdict.get("generated_at") if new_verdict else now,
+        input_hash=updated_day.get("input_hash") or current_hash,
+        current_hash=current_hash,
+        can_generate=True,
+    )

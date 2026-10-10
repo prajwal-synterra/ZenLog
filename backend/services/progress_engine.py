@@ -333,18 +333,28 @@ def compute_day_totals(entries: list[dict]) -> dict:
         extracted = entry.get("extracted") or {}
         overrides = entry.get("overrides") or {}
 
-        # Protein — use override if present
-        p = overrides.get("protein_g", (extracted.get("nutrition") or {}).get("protein_g"))
+        # Protein — use override if present, then direct extracted, then nested nutrition
+        p = overrides.get("protein_g")
+        if p is None:
+            p = extracted.get("protein_g")
+        if p is None:
+            p = (extracted.get("nutrition") or {}).get("protein_g")
         if p is not None:
             protein_g += p
 
-        # Calories — use override if present
-        c = overrides.get("calories_kcal", (extracted.get("nutrition") or {}).get("calories_kcal"))
+        # Calories — use override if present, then direct extracted, then nested nutrition
+        c = overrides.get("calories_kcal") or overrides.get("calories")
+        if c is None:
+            c = extracted.get("calories_kcal") or extracted.get("calories")
+        if c is None:
+            c = (extracted.get("nutrition") or {}).get("calories_kcal") or (extracted.get("nutrition") or {}).get("calories")
         if c is not None:
             calories_kcal += c
 
-        # Hydration — use override if present
-        h = overrides.get("hydration_ml", extracted.get("hydration_ml"))
+        # Hydration — use override if present, then direct extracted
+        h = overrides.get("hydration_ml") or overrides.get("water_ml")
+        if h is None:
+            h = extracted.get("hydration_ml") or extracted.get("water_ml")
         if h is not None:
             hydration_ml += h
 

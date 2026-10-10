@@ -150,13 +150,13 @@ async def generate_verdict_background(database, user_id: str, day_key: str):
     if not day:
         return
 
-    from backend.services.progress_engine import compute_day_totals, compute_progress
+    user_targets = day.get("targets_snapshot") or get_user_targets_snapshot(user or {})
     targets = {
-        "protein_g": (day.get("targets_snapshot") or {}).get("protein_g", 0),
-        "calories_kcal": (day.get("targets_snapshot") or {}).get("calories_kcal"),
-        "water_ml": (day.get("targets_snapshot") or {}).get("water_ml", 3000),
-        "weekly_workout_target": (day.get("targets_snapshot") or {}).get("weekly_workout_target", 3),
-        "goal": (day.get("targets_snapshot") or {}).get("goal", "muscle_gain"),
+        "protein_g": user_targets.get("protein_g", 0),
+        "calories_kcal": user_targets.get("calories_kcal"),
+        "water_ml": user_targets.get("water_ml", 3000),
+        "weekly_workout_target": user_targets.get("weekly_workout_target", 3),
+        "goal": user_targets.get("goal", "muscle_gain"),
     }
     totals = compute_day_totals(entries)
     progress = compute_progress(totals, targets, mode="past")
@@ -196,6 +196,18 @@ async def generate_verdict_background(database, user_id: str, day_key: str):
         f"Data:\n{json.dumps(payload, ensure_ascii=False, default=str)}"
     )
 
+    from backend.core.insight_hash import input_hash
+
+    day_row = {
+        "logical_date": day_key,
+        "protein_g": totals.get("protein_g", 0.0),
+        "calories": totals.get("calories_kcal", 0.0),
+        "water_ml": totals.get("hydration_ml", 0.0),
+        "workout": totals.get("workout_done", False),
+        "sleep_min": 0,
+    }
+    verdict_hash = input_hash([day_row], targets, targets["goal"], "verdict-v2")
+
     try:
         result, model_name = await loop.run_in_executor(
             None, lambda: generate_structured(VerdictAI, prompt)
@@ -213,6 +225,8 @@ async def generate_verdict_background(database, user_id: str, day_key: str):
             "generated_at": datetime.now(timezone.utc),
             "model": model_name,
             "status": "done",
+            "input_hash": verdict_hash,
+            "prompt_version": "verdict-v2",
         }
 
     except Exception as e:
@@ -238,13 +252,31 @@ async def generate_verdict_background(database, user_id: str, day_key: str):
             "model": "fallback",
             "status": "failed",
             "error": str(e)[:200],
+            "input_hash": verdict_hash,
+            "prompt_version": "verdict-v2",
         }
 
-    await loop.run_in_executor(
-        None,
-        lambda: database["days"].update_one(
+    def _save():
+        database["days"].update_one(
             {"user_id": user_id, "date": day_key},
-            {"$set": {"verdict": verdict, "verdict_status": verdict["status"],
-                       "updated_at": datetime.now(timezone.utc)}},
-        ),
-    )
+            {"$set": {
+                "verdict": verdict,
+                "verdict_status": verdict["status"],
+                "data_changed_since_review": False,
+                "input_hash": verdict_hash,
+                "updated_at": datetime.now(timezone.utc),
+            }},
+        )
+        database["insight_cache"].update_one(
+            {"user_id": user_id, "kind": "day", "range_start": day_key, "range_end": day_key},
+            {"$set": {
+                "input_hash": verdict_hash,
+                "report": verdict,
+                "prompt_version": "verdict-v2",
+                "model": verdict.get("model", "unknown"),
+                "generated_at": verdict["generated_at"],
+            }},
+            upsert=True,
+        )
+
+    await loop.run_in_executor(None, _save)

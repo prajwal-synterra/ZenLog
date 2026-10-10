@@ -145,6 +145,13 @@ async def lifespan(app: FastAPI):
         name="saved_meals_user_pinned_count",
     )
 
+    # Insight cache (Module 5)
+    db["insight_cache"].create_index(
+        [("user_id", 1), ("kind", 1), ("range_start", 1), ("range_end", 1)],
+        unique=True,
+        name="user_kind_range_unique",
+    )
+
     # Pre-seed default quotes pool if empty
     seed_default_quotes(db)
 

@@ -597,6 +597,55 @@ class ApiService {
     return null;
   }
 
+  Future<InsightModel?> generateInsight(String period, {bool force = false, String? anchor}) async {
+    try {
+      final body = <String, dynamic>{'force': force};
+      if (anchor != null) body['anchor'] = anchor;
+      final res = await http
+          .post(
+            Uri.parse('${ApiConstants.baseUrl}/api/insights/$period/generate'),
+            headers: _headers,
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 30));
+      if (res.statusCode == 200) {
+        return InsightModel.fromJson(jsonDecode(res.body));
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<Map<String, dynamic>?> getDayVerdict(String day) async {
+    try {
+      final res = await http
+          .get(
+            Uri.parse('${ApiConstants.baseUrl}/api/days/$day/verdict'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 15));
+      if (res.statusCode == 200) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<Map<String, dynamic>?> generateDayVerdict(String day, {bool force = false}) async {
+    try {
+      final res = await http
+          .post(
+            Uri.parse('${ApiConstants.baseUrl}/api/days/$day/verdict'),
+            headers: _headers,
+            body: jsonEncode({'force': force}),
+          )
+          .timeout(const Duration(seconds: 30));
+      if (res.statusCode == 200) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // SAVED MEALS (Module 4)
   // ─────────────────────────────────────────────────────────────────────────
