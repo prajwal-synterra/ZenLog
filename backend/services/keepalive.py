@@ -18,7 +18,7 @@ async def keepalive_loop() -> None:
     base = (
         os.getenv("RENDER_EXTERNAL_URL")
         or os.getenv("BASE_URL")
-        or "https://zenlog-zma5.onrender.com"
+        or "https://zenlog-k0la.onrender.com"
     )
     if not base:
         logger.info("Keep-alive skipped: no target URL configured.")

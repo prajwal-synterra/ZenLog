@@ -1,8 +1,8 @@
 class ApiConstants {
   // Toggle between Ngrok (local testing) and Render (production)
-  static const bool useNgrok = true;
+  static const bool useNgrok = false;
   static const String ngrokUrl = 'https://dawdlingly-pseudoinsane-pa.ngrok-free.dev';
-  static const String renderUrl = 'https://zenlog-zma5.onrender.com';
+  static const String renderUrl = 'https://zenlog-k0la.onrender.com';
 
   static String get baseUrl {
     const fromEnv = String.fromEnvironment('BASE_URL');
