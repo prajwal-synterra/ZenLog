@@ -22,7 +22,7 @@ def get_current_user(
     )
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
-    user["has_pin"] = bool(user.get("pin_hash"))
+    user["has_pin"] = bool(user.get("pin") or user.get("pin_hash"))
     return user
 
 
@@ -44,7 +44,7 @@ def update_current_user(
         {"_id": 0, "phone_number": 0, "phone": 0},
     )
     if res:
-        res["has_pin"] = bool(res.get("pin_hash"))
+        res["has_pin"] = bool(res.get("pin") or res.get("pin_hash"))
     return res
 
 
@@ -59,26 +59,22 @@ def set_or_change_pin(
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
 
-    current_hash = user.get("pin_hash")
-    if current_hash:
+    current_pin_val = user.get("pin") or user.get("pin_hash")
+    if current_pin_val:
         if not payload.current_pin:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Current PIN is required to change your PIN.",
             )
-        if not verify_pin(payload.current_pin, current_hash):
+        if not verify_pin(payload.current_pin, current_pin_val):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Current PIN is incorrect.",
             )
 
-    try:
-        new_hash = hash_pin(payload.pin)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
+    plain_pin = str(payload.pin).strip()
     database["users"].update_one(
         {"user_id": user_id},
-        {"$set": {"pin_hash": new_hash, "updated_at": datetime.now(timezone.utc)}},
+        {"$set": {"pin": plain_pin, "pin_hash": plain_pin, "updated_at": datetime.now(timezone.utc)}},
     )
     return {"ok": True, "detail": "PIN configured successfully.", "has_pin": True}

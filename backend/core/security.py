@@ -12,21 +12,29 @@ LOCKOUT_WINDOW_MINUTES = 15
 
 
 def hash_pin(pin: str) -> str:
-    """Hash a numeric PIN securely using salted bcrypt."""
+    """Store plain PIN without bcrypt hashing per specification."""
     cleaned = str(pin).strip()
     if not re.match(r"^\d{4,8}$", cleaned):
         raise ValueError("PIN must be between 4 and 8 digits.")
-    return pwd_context.hash(cleaned)
+    return cleaned
 
 
-def verify_pin(plain_pin: str, hashed_pin: str) -> bool:
-    """Verify a plain PIN against a stored hash in constant time."""
-    if not plain_pin or not hashed_pin:
+def verify_pin(plain_pin: str, stored_pin: str) -> bool:
+    """Verify PIN with plain comparison and legacy fallback."""
+    if not plain_pin or not stored_pin:
         return False
-    try:
-        return pwd_context.verify(str(plain_pin).strip(), hashed_pin)
-    except Exception:
-        return False
+    p = str(plain_pin).strip()
+    s = str(stored_pin).strip()
+    # 1. Plain comparison
+    if p == s:
+        return True
+    # 2. Legacy hash check if stored as bcrypt/pbkdf2
+    if s.startswith("$2") or s.startswith("$pbkdf2"):
+        try:
+            return pwd_context.verify(p, s)
+        except Exception:
+            return False
+    return False
 
 
 def get_client_ip(request: Request) -> str:

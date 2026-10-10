@@ -192,9 +192,14 @@ async def lifespan(app: FastAPI):
     from backend.services.keepalive import keepalive_loop
     keepalive_task = asyncio.create_task(keepalive_loop())
 
+    # --- Start notification scheduler loop ---
+    from backend.services.notification_scheduler import notification_scheduler_loop
+    scheduler_task = asyncio.create_task(notification_scheduler_loop(db))
+
     try:
         yield
     finally:
+        scheduler_task.cancel()
         keepalive_task.cancel()
         sweeper_task.cancel()
         client.close()

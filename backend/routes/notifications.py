@@ -99,7 +99,8 @@ def update_notification_settings(
 
 @router.post("/test")
 def trigger_test_notification(
-    template: str = Query(default="test", pattern="^(test|morning_quote|evening_quote|breakfast_check|lunch_check|dinner_check|hydration_nudge)$"),
+    template: str = Query(default="test", pattern="^(test|morning_quote|evening_quote|breakfast_check|lunch_check|dinner_check|hydration_nudge|custom)$"),
+    label: str = Query(default="Reminder Alert"),
     auth_context: dict = Depends(get_auth_context),
     database: Database = Depends(get_database),
 ):
@@ -107,7 +108,7 @@ def trigger_test_notification(
     user = auth_context["user"]
     user_id = user["user_id"]
 
-    sent_count = send_push_to_user(database, user_id, template_type=template)
+    sent_count = send_push_to_user(database, user_id, template_type=template, label=label)
     if sent_count == 0:
         return {
             "ok": False,
