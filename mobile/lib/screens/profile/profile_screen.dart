@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../../core/theme/zen_colors.dart';
 import '../../services/api_service.dart';
@@ -153,90 +155,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _exportData() async {
-    final t = context.zen;
-    final format = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (sheetCtx) {
-        return Container(
-          decoration: BoxDecoration(
-            color: t.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            border: Border.all(color: t.line),
-          ),
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 20),
-                  decoration: BoxDecoration(
-                    color: t.line,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              Text(
-                'Export My Data',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: t.ink),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Choose format to export your personal ZenLog history:',
-                style: TextStyle(fontSize: 13, color: t.inkMuted, height: 1.4),
-              ),
-              const SizedBox(height: 18),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: t.surfaceAlt,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(Icons.data_object_rounded, color: t.ink),
-                ),
-                title: Text('JSON Format', style: TextStyle(fontWeight: FontWeight.w600, color: t.ink)),
-                subtitle: Text('Complete archive: logs, daily views, sleep/wake, goals', style: TextStyle(fontSize: 12, color: t.inkMuted)),
-                trailing: Icon(Icons.arrow_forward_ios_rounded, size: 14, color: t.inkMuted),
-                onTap: () => Navigator.pop(sheetCtx, 'json'),
-              ),
-              Divider(color: t.line, height: 16),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: t.surfaceAlt,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(Icons.table_chart_rounded, color: t.ink),
-                ),
-                title: Text('CSV Format', style: TextStyle(fontWeight: FontWeight.w600, color: t.ink)),
-                subtitle: Text('Spreadsheet table of all your food & activity logs', style: TextStyle(fontSize: 12, color: t.inkMuted)),
-                trailing: Icon(Icons.arrow_forward_ios_rounded, size: 14, color: t.inkMuted),
-                onTap: () => Navigator.pop(sheetCtx, 'csv'),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    if (format == null || !mounted) return;
-
-    _showToast('Preparing your $format export…');
+    _showToast('Preparing your Excel (.xlsx) export…');
     try {
-      final res = await ApiService().exportData(format: format);
+      final res = await ApiService().exportDataExcel();
       if (!mounted) return;
-      if (res.ok && res.data != null) {
-        await Share.share(
-          res.data!,
-          subject: 'ZenLog Data Export ($format)',
+      if (res.ok && res.bytes != null) {
+        final tempDir = await getTemporaryDirectory();
+        final dateSlug = DateTime.now().toIso8601String().split('T').first;
+        final file = File('${tempDir.path}/ZenLog_Export_$dateSlug.xlsx');
+        await file.writeAsBytes(res.bytes!);
+        await SharePlus.instance.shareXFiles(
+          [XFile(file.path, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')],
+          subject: 'ZenLog Excel Export ($dateSlug)',
         );
       } else {
         _showToast(res.error ?? 'Export failed. Please try again.');
@@ -246,6 +176,223 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _showToast('Export failed: $e');
       }
     }
+  }
+
+  void _showPinSetupDialog() {
+    final t = context.zen;
+    final user = widget.state.user;
+    final hasPin = user?.hasPin == true;
+
+    final currentPinCtrl = TextEditingController();
+    final newPinCtrl = TextEditingController();
+    final confirmPinCtrl = TextEditingController();
+    bool obscure = true;
+    String? errorText;
+    bool isSaving = false;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
+              ),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: t.surface,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                  border: Border.all(color: t.line),
+                ),
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 20),
+                          decoration: BoxDecoration(
+                            color: t.line,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      Text(
+                        hasPin ? 'Change Login PIN' : 'Set Up Login PIN',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: t.ink),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        hasPin
+                            ? 'Enter your current PIN to change to a new 4 to 6-digit PIN.'
+                            : 'Set a 4 to 6-digit PIN to securely log in with 1 tap.',
+                        style: TextStyle(fontSize: 13, color: t.inkMuted, height: 1.4),
+                      ),
+                      const SizedBox(height: 16),
+                      if (hasPin) ...[
+                        Text('Current PIN', style: TextStyle(color: t.inkMuted, fontSize: 13, fontWeight: FontWeight.w500)),
+                        const SizedBox(height: 6),
+                        TextField(
+                          controller: currentPinCtrl,
+                          keyboardType: TextInputType.number,
+                          obscureText: obscure,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                            LengthLimitingTextInputFormatter(6),
+                          ],
+                          decoration: InputDecoration(
+                            hintText: 'Enter current PIN',
+                            filled: true,
+                            fillColor: t.surfaceAlt,
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: t.line)),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      Text('New PIN', style: TextStyle(color: t.inkMuted, fontSize: 13, fontWeight: FontWeight.w500)),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: newPinCtrl,
+                        keyboardType: TextInputType.number,
+                        obscureText: obscure,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(6),
+                        ],
+                        decoration: InputDecoration(
+                          hintText: '4 to 6 digits',
+                          filled: true,
+                          fillColor: t.surfaceAlt,
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                              size: 18,
+                              color: t.inkMuted,
+                            ),
+                            onPressed: () => setSheetState(() => obscure = !obscure),
+                          ),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: t.line)),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text('Confirm New PIN', style: TextStyle(color: t.inkMuted, fontSize: 13, fontWeight: FontWeight.w500)),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: confirmPinCtrl,
+                        keyboardType: TextInputType.number,
+                        obscureText: obscure,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(6),
+                        ],
+                        decoration: InputDecoration(
+                          hintText: 'Re-enter new PIN',
+                          filled: true,
+                          fillColor: t.surfaceAlt,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: t.line)),
+                        ),
+                      ),
+                      if (errorText != null) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: t.dangerTint,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.error_outline, size: 16, color: t.dangerFill),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(errorText!, style: TextStyle(color: t.dangerText, fontSize: 12)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 20),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () => Navigator.pop(sheetCtx),
+                              child: const Text('Cancel'),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: isSaving
+                                  ? null
+                                  : () async {
+                                      final cur = currentPinCtrl.text.trim();
+                                      final np = newPinCtrl.text.trim();
+                                      final cp = confirmPinCtrl.text.trim();
+
+                                      if (hasPin && cur.isEmpty) {
+                                        setSheetState(() => errorText = 'Enter your current PIN.');
+                                        return;
+                                      }
+                                      if (np.length < 4 || np.length > 6) {
+                                        setSheetState(() => errorText = 'PIN must be 4 to 6 digits.');
+                                        return;
+                                      }
+                                      if (np != cp) {
+                                        setSheetState(() => errorText = 'New PINs do not match.');
+                                        return;
+                                      }
+
+                                      setSheetState(() {
+                                        isSaving = true;
+                                        errorText = null;
+                                      });
+
+                                      final res = await widget.state.setPin(
+                                        pin: np,
+                                        currentPin: hasPin ? cur : null,
+                                      );
+
+                                      if (!sheetCtx.mounted) return;
+
+                                      if (res.ok) {
+                                        Navigator.pop(sheetCtx);
+                                        setState(() {});
+                                        _showToast(hasPin ? 'PIN changed successfully.' : 'PIN configured successfully.');
+                                      } else {
+                                        setSheetState(() {
+                                          isSaving = false;
+                                          errorText = res.error ?? 'Failed to update PIN.';
+                                        });
+                                      }
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: t.ink,
+                                foregroundColor: t.onInk,
+                              ),
+                              child: isSaving
+                                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                  : Text(hasPin ? 'Update PIN' : 'Save PIN'),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _logout() async {
@@ -603,10 +750,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _Hairline(t: t),
                 _SettingsRow(
                   label: 'Export my data',
-                  value: 'JSON / CSV',
-                  detail: 'Share or backup',
+                  value: 'Excel (.xlsx)',
+                  detail: 'Clean summary',
                   t: t,
                   onTap: _exportData,
+                ),
+              ]),
+
+              const SizedBox(height: 24),
+
+              // ── SECURITY & PIN ───────────────────────────────────────────────
+              _SectionLabel(label: 'SECURITY & PIN', t: t),
+              const SizedBox(height: 10),
+              _SettingsCard(t: t, children: [
+                _SettingsRow(
+                  label: 'Login PIN',
+                  value: (user?.hasPin == true) ? 'Active' : 'Not set',
+                  detail: (user?.hasPin == true) ? 'Change PIN' : 'Set up PIN',
+                  t: t,
+                  onTap: _showPinSetupDialog,
                 ),
               ]),
 
@@ -1008,16 +1170,41 @@ class _SettingsRow extends StatelessWidget {
         child: Row(
           children: [
             Expanded(
-              child: Text(label, style: TextStyle(color: t.ink, fontSize: 15)),
+              child: Text(
+                label,
+                style: TextStyle(color: t.ink, fontSize: 15),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-            if (detail.isNotEmpty)
-              Text(detail, style: TextStyle(color: t.inkFaint, fontSize: 12)),
-            if (detail.isNotEmpty) const SizedBox(width: 8),
-            Text(value, style: TextStyle(color: t.inkMuted, fontSize: 14)),
-            if (onTap != null) ...[
-              const SizedBox(width: 6),
-              Icon(Icons.chevron_right_rounded, size: 18, color: t.inkFaint),
-            ],
+            const SizedBox(width: 8),
+            Flexible(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (detail.isNotEmpty) ...[
+                    Flexible(
+                      child: Text(
+                        detail,
+                        style: TextStyle(color: t.inkFaint, fontSize: 12),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  Flexible(
+                    child: Text(
+                      value,
+                      style: TextStyle(color: t.inkMuted, fontSize: 14),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (onTap != null) ...[
+                    const SizedBox(width: 4),
+                    Icon(Icons.chevron_right_rounded, size: 18, color: t.inkFaint),
+                  ],
+                ],
+              ),
+            ),
           ],
         ),
       ),

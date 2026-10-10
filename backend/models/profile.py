@@ -21,6 +21,7 @@ class ProfileResponse(BaseModel):
     user_id: str
     username: str
     name: str
+    has_pin: bool = False
     goal: str | None = None
     body_weight_kg: float | None = None
     daily_protein_target_g: float | None = None
@@ -29,3 +30,10 @@ class ProfileResponse(BaseModel):
     weekly_workout_target: int | None = None
     sleep_target_hours: float | None = None
     eating_window: dict | None = None
+
+
+class SetPinRequest(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    pin: str = Field(min_length=4, max_length=8)
+    current_pin: str | None = Field(default=None, max_length=12)

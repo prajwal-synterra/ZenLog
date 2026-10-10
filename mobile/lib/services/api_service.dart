@@ -116,7 +116,7 @@ class ApiService {
     }
   }
 
-  /// Exports user's logs and data (Section 3.2). format can be 'json' or 'csv'.
+  /// Exports user's logs and data (Section 3.2). format can be 'json', 'csv', or 'xlsx'.
   Future<({bool ok, String? data, String? error})> exportData({String format = 'json'}) async {
     try {
       final res = await http
@@ -132,6 +132,59 @@ class ApiService {
       return (ok: false, data: null, error: 'Failed to export data (${res.statusCode})');
     } catch (e) {
       return (ok: false, data: null, error: e.toString());
+    }
+  }
+
+  /// Downloads structured Excel (.xlsx) file with human-readable sheets.
+  Future<({bool ok, List<int>? bytes, String? error})> exportDataExcel() async {
+    try {
+      final res = await http
+          .get(
+            Uri.parse('${ApiConstants.baseUrl}/api/export?format=xlsx'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 45));
+
+      if (res.statusCode == 200) {
+        return (ok: true, bytes: res.bodyBytes, error: null);
+      }
+      return (ok: false, bytes: null, error: 'Failed to export Excel (${res.statusCode})');
+    } catch (e) {
+      return (ok: false, bytes: null, error: e.toString());
+    }
+  }
+
+  /// Sets or updates user login PIN (4-8 digits).
+  Future<({bool ok, String? error})> setPin({
+    required String pin,
+    String? currentPin,
+  }) async {
+    try {
+      final payload = <String, dynamic>{'pin': pin};
+      if (currentPin != null && currentPin.trim().isNotEmpty) {
+        payload['current_pin'] = currentPin.trim();
+      }
+      final res = await http
+          .put(
+            Uri.parse('${ApiConstants.baseUrl}/api/users/pin'),
+            headers: _headers,
+            body: jsonEncode(payload),
+          )
+          .timeout(const Duration(seconds: 12));
+
+      if (res.statusCode == 200) {
+        return (ok: true, error: null);
+      }
+      String err = 'Failed to configure PIN (${res.statusCode})';
+      try {
+        final body = jsonDecode(res.body);
+        if (body is Map && body['detail'] != null) {
+          err = body['detail'].toString();
+        }
+      } catch (_) {}
+      return (ok: false, error: err);
+    } catch (e) {
+      return (ok: false, error: e.toString());
     }
   }
 

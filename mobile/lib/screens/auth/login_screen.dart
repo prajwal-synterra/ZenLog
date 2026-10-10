@@ -87,6 +87,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (result.ok && result.data != null) {
       final token = result.data!['access_token'] as String?;
+      final user = result.data!['user'] as Map<String, dynamic>?;
+      final hasPin = user?['has_pin'] == true;
+
       if (token != null) {
         _api.setToken(token);
         await AuthStorage.saveToken(token);
@@ -95,6 +98,13 @@ class _LoginScreenState extends State<LoginScreen> {
           phone: phone,
         );
       }
+      if (!mounted) return;
+
+      // If user logged in without PIN, prompt them to set their PIN now
+      if (!hasPin) {
+        await _showSetPinSheet();
+      }
+
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const DayReadyLoadingScreen()),
@@ -105,6 +115,207 @@ class _LoginScreenState extends State<LoginScreen> {
         _errorMessage = result.error ?? 'Username or PIN incorrect.';
       });
     }
+  }
+
+  Future<bool> _showSetPinSheet() async {
+    final t = context.zen;
+    final pinCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+    bool obscure = true;
+    String? sheetError;
+    bool saving = false;
+
+    final success = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetCtx).viewInsets.bottom,
+              ),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: t.surface,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                  border: Border.all(color: t.line),
+                ),
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 32),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 20),
+                          decoration: BoxDecoration(
+                            color: t.line,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          Icon(Icons.lock_outline_rounded, size: 22, color: t.ink),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Set Your Login PIN',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                color: t.ink,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'You logged in with your phone number. Set a 4 to 6-digit PIN so you can log in quickly with just your PIN next time.',
+                        style: TextStyle(fontSize: 13, color: t.inkMuted, height: 1.4),
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        'New PIN',
+                        style: TextStyle(color: t.inkMuted, fontSize: 13, fontWeight: FontWeight.w500),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: pinCtrl,
+                        keyboardType: TextInputType.number,
+                        obscureText: obscure,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(6),
+                        ],
+                        decoration: InputDecoration(
+                          hintText: '4 to 6 digits',
+                          filled: true,
+                          fillColor: t.surfaceAlt,
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                              size: 18,
+                              color: t.inkMuted,
+                            ),
+                            onPressed: () => setSheetState(() => obscure = !obscure),
+                          ),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: t.line)),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        'Confirm PIN',
+                        style: TextStyle(color: t.inkMuted, fontSize: 13, fontWeight: FontWeight.w500),
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: confirmCtrl,
+                        keyboardType: TextInputType.number,
+                        obscureText: obscure,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(6),
+                        ],
+                        decoration: InputDecoration(
+                          hintText: 'Re-enter your PIN',
+                          filled: true,
+                          fillColor: t.surfaceAlt,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: t.line)),
+                        ),
+                      ),
+                      if (sheetError != null) ...[
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: t.dangerTint,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(Icons.error_outline, size: 16, color: t.dangerFill),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  sheetError!,
+                                  style: TextStyle(color: t.dangerText, fontSize: 12),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 24),
+                      Row(
+                        children: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(sheetCtx, false),
+                            child: Text('Skip for now', style: TextStyle(color: t.inkFaint)),
+                          ),
+                          const Spacer(),
+                          ElevatedButton(
+                            onPressed: saving
+                                ? null
+                                : () async {
+                                    final p = pinCtrl.text.trim();
+                                    final cp = confirmCtrl.text.trim();
+                                    if (p.length < 4 || p.length > 6) {
+                                      setSheetState(() => sheetError = 'PIN must be 4 to 6 digits.');
+                                      return;
+                                    }
+                                    if (p != cp) {
+                                      setSheetState(() => sheetError = 'PINs do not match.');
+                                      return;
+                                    }
+
+                                    setSheetState(() {
+                                      saving = true;
+                                      sheetError = null;
+                                    });
+
+                                    final res = await _api.setPin(pin: p);
+                                    if (!sheetCtx.mounted) return;
+                                    if (res.ok) {
+                                      Navigator.pop(sheetCtx, true);
+                                    } else {
+                                      setSheetState(() {
+                                        saving = false;
+                                        sheetError = res.error ?? 'Failed to set PIN.';
+                                      });
+                                    }
+                                  },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: t.ink,
+                              foregroundColor: t.onInk,
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                            child: saving
+                                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                : const Text('Set PIN & Continue'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    return success == true;
   }
 
   @override

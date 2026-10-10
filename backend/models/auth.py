@@ -22,6 +22,7 @@ class UserResponse(BaseModel):
     user_id: str
     username: str
     name: str
+    has_pin: bool = False
 
 
 class LoginResponse(BaseModel):

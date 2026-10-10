@@ -112,6 +112,7 @@ def login(
             user_id=user["user_id"],
             username=user["username"],
             name=user["name"],
+            has_pin=bool(user.get("pin_hash")),
         ),
     )
 
@@ -151,6 +152,7 @@ def get_me(
         "user_id": user.get("user_id"),
         "username": user.get("username"),
         "name": user.get("name"),
+        "has_pin": bool(user.get("pin_hash")),
         "goal": user.get("goal"),
         "daily_protein_target_g": user.get("daily_protein_target_g"),
         "daily_calorie_target": cal_target,

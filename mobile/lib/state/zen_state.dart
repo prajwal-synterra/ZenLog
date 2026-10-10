@@ -758,7 +758,22 @@ class ZenState extends ChangeNotifier with WidgetsBindingObserver {
       dailyCalorieTarget: (me['daily_calorie_target'] as num?)?.toDouble(),
       dailyWaterTargetMl: (me['daily_water_target_ml'] as num?)?.toDouble() ?? 3000.0,
       weeklyWorkoutTarget: (me['weekly_workout_target'] as num?)?.toInt() ?? 3,
+      hasPin: me['has_pin'] == true,
     );
+  }
+
+  Future<({bool ok, String? error})> setPin({
+    required String pin,
+    String? currentPin,
+  }) async {
+    final res = await _api.setPin(pin: pin, currentPin: currentPin);
+    if (res.ok) {
+      if (user != null) {
+        user = user!.copyWith(hasPin: true);
+        notifyListeners();
+      }
+    }
+    return res;
   }
 
   @override

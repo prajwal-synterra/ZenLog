@@ -172,7 +172,9 @@ class _SavedMealsScreenState extends State<SavedMealsScreen> {
                             onChanged: (v) => setSheetState(() => isPinned = v ?? false),
                             activeColor: t.ink,
                           ),
-                          Text('Pin to quick-action bar', style: TextStyle(color: t.ink, fontSize: 14)),
+                          Expanded(
+                            child: Text('Pin to quick-action bar', style: TextStyle(color: t.ink, fontSize: 14)),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 20),
@@ -218,7 +220,7 @@ class _SavedMealsScreenState extends State<SavedMealsScreen> {
                                     pinned: isPinned,
                                   );
                                 }
-                                if (mounted) Navigator.pop(sheetCtx);
+                                if (sheetCtx.mounted) Navigator.pop(sheetCtx);
                               },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: t.ink,
@@ -243,39 +245,45 @@ class _SavedMealsScreenState extends State<SavedMealsScreen> {
   @override
   Widget build(BuildContext context) {
     final t = context.zen;
-    final meals = widget.state.savedMeals;
 
-    return Scaffold(
-      backgroundColor: t.bg,
-      appBar: AppBar(
-        title: Text(
-          'Saved Meals',
-          style: TextStyle(color: t.ink, fontWeight: FontWeight.w600, fontSize: 18),
-        ),
-        backgroundColor: t.surface,
-        elevation: 0,
-        iconTheme: IconThemeData(color: t.ink),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add_rounded),
-            tooltip: 'Add Favorite Meal',
-            onPressed: () => _showAddEditDialog(),
+    return ListenableBuilder(
+      listenable: widget.state,
+      builder: (context, _) {
+        final meals = widget.state.savedMeals;
+
+        return Scaffold(
+          backgroundColor: t.bg,
+          appBar: AppBar(
+            title: Text(
+              'Saved Meals',
+              style: TextStyle(color: t.ink, fontWeight: FontWeight.w600, fontSize: 18),
+            ),
+            backgroundColor: t.surface,
+            elevation: 0,
+            iconTheme: IconThemeData(color: t.ink),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.add_rounded),
+                tooltip: 'Add Favorite Meal',
+                onPressed: () => _showAddEditDialog(),
+              ),
+            ],
           ),
-        ],
-      ),
-      body: widget.state.isLoadingSavedMeals && meals.isEmpty
-          ? Center(child: CircularProgressIndicator(color: t.ink))
-          : meals.isEmpty
-              ? _buildEmptyState(t)
-              : ListView.separated(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: meals.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemBuilder: (ctx, i) {
-                    final meal = meals[i];
-                    return _buildMealCard(meal, t);
-                  },
-                ),
+          body: widget.state.isLoadingSavedMeals && meals.isEmpty
+              ? Center(child: CircularProgressIndicator(color: t.ink))
+              : meals.isEmpty
+                  ? _buildEmptyState(t)
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: meals.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      itemBuilder: (ctx, i) {
+                        final meal = meals[i];
+                        return _buildMealCard(meal, t);
+                      },
+                    ),
+        );
+      },
     );
   }
 
@@ -343,6 +351,8 @@ class _SavedMealsScreenState extends State<SavedMealsScreen> {
               Expanded(
                 child: Text(
                   name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: t.ink),
                 ),
               ),
@@ -373,7 +383,12 @@ class _SavedMealsScreenState extends State<SavedMealsScreen> {
           ),
           if (rawText.isNotEmpty && rawText != name) ...[
             const SizedBox(height: 2),
-            Text(rawText, style: TextStyle(fontSize: 13, color: t.inkMuted)),
+            Text(
+              rawText,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 13, color: t.inkMuted),
+            ),
           ],
           const SizedBox(height: 12),
           Wrap(
@@ -393,11 +408,14 @@ class _SavedMealsScreenState extends State<SavedMealsScreen> {
           const SizedBox(height: 12),
           Row(
             children: [
-              Text(
-                'Logged $useCount ${useCount == 1 ? 'time' : 'times'}',
-                style: TextStyle(fontSize: 12, color: t.inkFaint),
+              Expanded(
+                child: Text(
+                  'Logged $useCount ${useCount == 1 ? 'time' : 'times'}',
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12, color: t.inkFaint),
+                ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               ElevatedButton.icon(
                 onPressed: () async {
                   HapticFeedback.lightImpact();

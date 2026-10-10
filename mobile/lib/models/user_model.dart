@@ -8,6 +8,7 @@ class UserModel {
   final double? dailyCalorieTarget;
   final double? dailyWaterTargetMl;
   final int? weeklyWorkoutTarget;
+  final bool hasPin;
 
   UserModel({
     required this.userId,
@@ -19,6 +20,7 @@ class UserModel {
     this.dailyCalorieTarget,
     this.dailyWaterTargetMl,
     this.weeklyWorkoutTarget,
+    this.hasPin = false,
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
@@ -33,6 +35,7 @@ class UserModel {
       dailyCalorieTarget: (json['daily_calorie_target'] as num?)?.toDouble(),
       dailyWaterTargetMl: (json['daily_water_target_ml'] as num?)?.toDouble() ?? 3000.0,
       weeklyWorkoutTarget: (json['weekly_workout_target'] as num?)?.toInt() ?? 3,
+      hasPin: json['has_pin'] == true,
     );
   }
 
@@ -47,6 +50,33 @@ class UserModel {
       'daily_calorie_target': dailyCalorieTarget,
       'daily_water_target_ml': dailyWaterTargetMl,
       'weekly_workout_target': weeklyWorkoutTarget,
+      'has_pin': hasPin,
     };
+  }
+
+  UserModel copyWith({
+    String? userId,
+    String? username,
+    String? name,
+    String? goal,
+    double? bodyWeightKg,
+    double? dailyProteinTargetG,
+    double? dailyCalorieTarget,
+    double? dailyWaterTargetMl,
+    int? weeklyWorkoutTarget,
+    bool? hasPin,
+  }) {
+    return UserModel(
+      userId: userId ?? this.userId,
+      username: username ?? this.username,
+      name: name ?? this.name,
+      goal: goal ?? this.goal,
+      bodyWeightKg: bodyWeightKg ?? this.bodyWeightKg,
+      dailyProteinTargetG: dailyProteinTargetG ?? this.dailyProteinTargetG,
+      dailyCalorieTarget: dailyCalorieTarget ?? this.dailyCalorieTarget,
+      dailyWaterTargetMl: dailyWaterTargetMl ?? this.dailyWaterTargetMl,
+      weeklyWorkoutTarget: weeklyWorkoutTarget ?? this.weeklyWorkoutTarget,
+      hasPin: hasPin ?? this.hasPin,
+    );
   }
 }
