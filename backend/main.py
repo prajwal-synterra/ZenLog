@@ -24,6 +24,7 @@ from backend.routes.health import router as health_router
 from backend.routes.insights import router as insights_router
 from backend.routes.logs import router as logs_router
 from backend.routes.quotes import router as quotes_router
+from backend.routes.saved_meals import router as saved_meals_router
 from backend.routes.stats import router as stats_router
 from backend.routes.users import router as users_router
 from backend.services.quote_service import seed_default_quotes
@@ -138,6 +139,12 @@ async def lifespan(app: FastAPI):
         name="daily_quotes_user_date_unique",
     )
 
+    # Saved meals (Module 4)
+    db["saved_meals"].create_index(
+        [("user_id", 1), ("pinned", -1), ("use_count", -1)],
+        name="saved_meals_user_pinned_count",
+    )
+
     # Pre-seed default quotes pool if empty
     seed_default_quotes(db)
 
@@ -181,3 +188,4 @@ app.include_router(calendar_router)
 app.include_router(stats_router)
 app.include_router(insights_router)
 app.include_router(export_router)
+app.include_router(saved_meals_router)

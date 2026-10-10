@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/zen_colors.dart';
 import '../../core/theme/zen_theme_controller.dart';
 import '../../state/zen_state.dart';
 import '../../services/wake_service.dart';
+import '../profile/saved_meals_screen.dart';
 import 'widgets/morning_walk_card.dart';
 
 
@@ -150,6 +152,444 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ),
       );
     }
+  }
+
+  Future<void> _handleSaveAsFavorite(String id, String text) async {
+    final t = context.zen;
+    final ok = await widget.state.saveMealFromLog(id, name: text);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok ? 'Saved as favorite meal' : 'Could not save as favorite (needs nutrition values)'),
+        backgroundColor: t.ink,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  Future<void> _handleQuickWater(int amount) async {
+    HapticFeedback.lightImpact();
+    final t = context.zen;
+    final logId = await widget.state.logQuickWater(amount);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('+$amount ml water logged'),
+        backgroundColor: t.ink,
+        duration: const Duration(seconds: 5),
+        behavior: SnackBarBehavior.floating,
+        action: SnackBarAction(
+          label: 'Undo',
+          textColor: t.accent,
+          onPressed: () {
+            if (logId != null) {
+              widget.state.deleteLog(logId);
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  void _showCustomWaterDialog() {
+    final t = context.zen;
+    final ctrl = TextEditingController(text: '300');
+    showDialog(
+      context: context,
+      builder: (dlgCtx) => AlertDialog(
+        title: const Text('Custom Water Amount'),
+        content: TextField(
+          controller: ctrl,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          autofocus: true,
+          decoration: InputDecoration(
+            suffixText: 'ml',
+            filled: true,
+            fillColor: t.surfaceAlt,
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dlgCtx), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () {
+              final val = int.tryParse(ctrl.text.trim());
+              Navigator.pop(dlgCtx);
+              if (val != null && val > 0) {
+                _handleQuickWater(val);
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: t.ink, foregroundColor: t.onInk),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPortionSheet(Map<String, dynamic> meal) {
+    final t = context.zen;
+    final id = meal['id'] as String? ?? '';
+    final name = meal['name'] as String? ?? 'Meal';
+    final extracted = (meal['extracted'] as Map?) ?? {};
+    final baseProtein = (extracted['protein_g'] as num?)?.toDouble() ?? 0.0;
+    final baseCal = (extracted['calories'] as num?)?.toInt() ?? (extracted['calories_kcal'] as num?)?.toInt() ?? 0;
+
+    double portion = 1.0;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final p = (baseProtein * portion).toStringAsFixed(1);
+            final cal = (baseCal * portion).round();
+
+            return Container(
+              decoration: BoxDecoration(
+                color: t.surface,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                border: Border.all(color: t.line),
+              ),
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 20),
+                      decoration: BoxDecoration(
+                        color: t.line,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Text(
+                    name,
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: t.ink),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Choose portion size to log:',
+                    style: TextStyle(fontSize: 13, color: t.inkMuted),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [0.5, 1.0, 1.5, 2.0].map((opt) {
+                      final isSelected = (portion - opt).abs() < 0.01;
+                      return GestureDetector(
+                        onTap: () => setSheetState(() => portion = opt),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: isSelected ? t.ink : t.surfaceAlt,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: isSelected ? t.ink : t.line),
+                          ),
+                          child: Text(
+                            '${opt}×',
+                            style: TextStyle(
+                              color: isSelected ? t.onInk : t.ink,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: t.surfaceAlt,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        Text('$p g protein', style: TextStyle(fontWeight: FontWeight.w600, color: t.ink)),
+                        Text('·', style: TextStyle(color: t.inkMuted)),
+                        Text('$cal kcal', style: TextStyle(fontWeight: FontWeight.w600, color: t.ink)),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        Navigator.pop(sheetCtx);
+                        HapticFeedback.lightImpact();
+                        final ok = await widget.state.logSavedMeal(id, portion: portion);
+                        if (mounted && ok) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Logged "$name (${portion}x)"'),
+                              backgroundColor: t.ink,
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: t.ink,
+                        foregroundColor: t.onInk,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: Text('Log ${portion}×'),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showMealOptionsSheet(Map<String, dynamic> meal) {
+    final t = context.zen;
+    final id = meal['id'] as String? ?? '';
+    final name = meal['name'] as String? ?? 'Meal';
+    final isPinned = meal['pinned'] == true;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => Container(
+        decoration: BoxDecoration(
+          color: t.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border.all(color: t.line),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(color: t.line, borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            Text(name, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: t.ink)),
+            const SizedBox(height: 14),
+            ListTile(
+              leading: Icon(isPinned ? Icons.push_pin_outlined : Icons.push_pin, color: t.ink),
+              title: Text(isPinned ? 'Unpin from quick bar' : 'Pin to quick bar', style: TextStyle(color: t.ink)),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                widget.state.updateSavedMeal(id, pinned: !isPinned);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.manage_search_rounded, color: t.ink),
+              title: Text('Manage in Saved Meals', style: TextStyle(color: t.ink)),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => SavedMealsScreen(state: widget.state)),
+                );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.red),
+              title: const Text('Delete favorite', style: TextStyle(color: Colors.red)),
+              onTap: () {
+                Navigator.pop(sheetCtx);
+                widget.state.deleteSavedMeal(id);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWaterQuickButtons(ZenThemeTokens t) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: () => _handleQuickWater(250),
+          onLongPress: _showCustomWaterDialog,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            decoration: BoxDecoration(
+              color: t.surfaceAlt,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: t.line),
+            ),
+            child: Text(
+              '+250',
+              style: TextStyle(
+                color: t.ink,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        GestureDetector(
+          onTap: () => _handleQuickWater(500),
+          onLongPress: _showCustomWaterDialog,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            decoration: BoxDecoration(
+              color: t.surfaceAlt,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: t.line),
+            ),
+            child: Text(
+              '+500',
+              style: TextStyle(
+                color: t.ink,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFavoritesChipRow(ZenState state, ZenThemeTokens t) {
+    final meals = state.savedMeals.take(6).toList();
+    if (meals.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      height: 34,
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: meals.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 6),
+        itemBuilder: (ctx, i) {
+          final meal = meals[i];
+          final name = meal['name'] as String? ?? 'Meal';
+          final isPinned = meal['pinned'] == true;
+
+          return GestureDetector(
+            onTap: () => _showPortionSheet(meal),
+            onLongPress: () => _showMealOptionsSheet(meal),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: t.surfaceAlt,
+                borderRadius: BorderRadius.circular(9),
+                border: Border.all(color: isPinned ? t.ink : t.line),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (isPinned) ...[
+                    Icon(Icons.push_pin, size: 11, color: t.ink),
+                    const SizedBox(width: 4),
+                  ],
+                  Text(
+                    name,
+                    style: TextStyle(
+                      color: t.ink,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSuggestionBanner(ZenState state, ZenThemeTokens t) {
+    if (state.savedMealSuggestions.isEmpty) return const SizedBox.shrink();
+    final first = state.savedMealSuggestions.first;
+    final name = first['name'] as String? ?? '';
+    final count = first['count'] as int? ?? 3;
+    final sampleLogId = first['sample_log_id'] as String?;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: t.surfaceAlt,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: t.accent.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.auto_awesome, size: 16, color: t.accent),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Frequent meal detected',
+                  style: TextStyle(color: t.inkFaint, fontSize: 10.5, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'You\'ve logged "$name" $count times. Save as favorite?',
+                  style: TextStyle(color: t.ink, fontSize: 12.5, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          TextButton(
+            onPressed: () => state.dismissSuggestion(first['raw_text'] as String),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: Text('Dismiss', style: TextStyle(color: t.inkMuted, fontSize: 11.5)),
+          ),
+          const SizedBox(width: 4),
+          ElevatedButton(
+            onPressed: () async {
+              if (sampleLogId != null) {
+                await state.saveMealFromLog(sampleLogId, name: name);
+              }
+              state.dismissSuggestion(first['raw_text'] as String);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Saved "$name" as favorite'), backgroundColor: t.ink),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: t.ink,
+              foregroundColor: t.onInk,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('Save', style: TextStyle(fontSize: 11.5)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _send() async {
@@ -490,6 +930,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               MorningWalkCard(wakeTime: widget.state.wakeTime!),
             ],
             _buildDailyQuoteBanner(state, dayView, t),
+            _buildSuggestionBanner(state, t),
             _buildPaceCard(dayView, t),
             const SizedBox(height: 12),
             _buildNextMoveCard(dayView, t),
@@ -638,6 +1079,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             status: waterStatus,
             expectedPct: (progress['water'] as Map?)?['expected_pct_now'] as double?,
             t: t,
+            trailingAction: _buildWaterQuickButtons(t),
           ),
           if (calTarget != null) ...[
             const SizedBox(height: 12),
@@ -819,6 +1261,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           onDelete: (id) => _confirmDelete(id, state),
           onRepeat: _handleRepeatLog,
           onChangeTime: _handleChangeLogTime,
+          onSaveAsFavorite: _handleSaveAsFavorite,
         )).toList(),
       ],
     );
@@ -1419,6 +1862,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (isPast) _buildPastDayComposerBanner(state, t),
+              _buildFavoritesChipRow(state, t),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
@@ -1903,6 +2347,7 @@ class _PaceRow extends StatelessWidget {
   final String status;
   final double? expectedPct;
   final ZenThemeTokens t;
+  final Widget? trailingAction;
 
   const _PaceRow({
     required this.label,
@@ -1912,6 +2357,7 @@ class _PaceRow extends StatelessWidget {
     required this.status,
     this.expectedPct,
     required this.t,
+    this.trailingAction,
   });
 
   @override
@@ -1926,6 +2372,10 @@ class _PaceRow extends StatelessWidget {
         Row(
           children: [
             Text(label, style: TextStyle(color: t.inkMuted, fontSize: 14)),
+            if (trailingAction != null) ...[
+              const SizedBox(width: 8),
+              trailingAction!,
+            ],
             const Spacer(),
             Text(
               '${actual.toStringAsFixed(0)} / ${target.toStringAsFixed(0)} $unit',
@@ -1999,6 +2449,7 @@ class _EntryRow extends StatelessWidget {
   final void Function(String id) onDelete;
   final void Function(String id)? onRepeat;
   final void Function(String id, String currentDay)? onChangeTime;
+  final void Function(String id, String text)? onSaveAsFavorite;
 
   const _EntryRow({
     required this.log,
@@ -2009,6 +2460,7 @@ class _EntryRow extends StatelessWidget {
     required this.onDelete,
     this.onRepeat,
     this.onChangeTime,
+    this.onSaveAsFavorite,
   });
 
   @override
@@ -2100,6 +2552,14 @@ class _EntryRow extends StatelessWidget {
                             icon: Icons.repeat_rounded,
                             color: t.inkFaint,
                             onTap: () => onRepeat!(id),
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        if (onSaveAsFavorite != null && id.isNotEmpty) ...[
+                          _IconButton(
+                            icon: Icons.bookmark_add_outlined,
+                            color: t.inkFaint,
+                            onTap: () => onSaveAsFavorite!(id, text),
                           ),
                           const SizedBox(width: 4),
                         ],

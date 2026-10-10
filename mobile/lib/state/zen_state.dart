@@ -52,6 +52,11 @@ class ZenState extends ChangeNotifier with WidgetsBindingObserver {
   InsightModel? weeklyInsight;
   InsightModel? monthlyInsight;
 
+  // ── Saved Meals & Quick Actions (Module 4) ─────────────────────────────
+  List<Map<String, dynamic>> savedMeals = [];
+  List<Map<String, dynamic>> savedMealSuggestions = [];
+  bool isLoadingSavedMeals = false;
+
   // ── Global loading ────────────────────────────────────────────────────────
   bool isLoading = false;
   String? errorMessage;
@@ -120,10 +125,12 @@ class ZenState extends ChangeNotifier with WidgetsBindingObserver {
       }
     } catch (_) {}
 
-    // 3. Load day view, sleep/wake cycle, and quote
+    // 3. Load day view, sleep/wake cycle, quote, and saved meals
     await loadDayView(_selectedDate);
     await refreshSleepWakeData();
     ensureQuoteLoaded(_selectedDate);
+    loadSavedMeals();
+    loadSavedMealSuggestions();
 
     WidgetsBinding.instance.addObserver(this);
 
@@ -493,6 +500,161 @@ class ZenState extends ChangeNotifier with WidgetsBindingObserver {
       await loadDayView(_selectedDate);
       notifyListeners();
     }
+  }
+
+  // ── Saved Meals & Quick Actions (Module 4) ─────────────────────────────
+
+  Future<void> loadSavedMeals() async {
+    try {
+      isLoadingSavedMeals = true;
+      notifyListeners();
+      savedMeals = await _api.getSavedMeals();
+    } catch (_) {
+    } finally {
+      isLoadingSavedMeals = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadSavedMealSuggestions() async {
+    try {
+      savedMealSuggestions = await _api.getSavedMealSuggestions();
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  void dismissSuggestion(String rawText) {
+    savedMealSuggestions.removeWhere((s) => s['raw_text'] == rawText);
+    notifyListeners();
+  }
+
+  /// Optimistically adds water and sends structured log (Module 4).
+  /// Returns created log ID so undo can immediately delete it.
+  Future<String?> logQuickWater(int amountMl) async {
+    final effectiveLoggedAt = _effectiveDateTimeForSelectedDate();
+    final clientId = _uuid.v4();
+
+    // Optimistic local update on currentDayView
+    if (_dayViewCache.containsKey(_selectedDate)) {
+      final cached = Map<String, dynamic>.from(_dayViewCache[_selectedDate]!);
+      final totals = Map<String, dynamic>.from((cached['totals'] as Map?) ?? {});
+      final currentHydration = (totals['hydration_ml'] as num?)?.toDouble() ?? 0.0;
+      totals['hydration_ml'] = currentHydration + amountMl;
+      cached['totals'] = totals;
+      _dayViewCache[_selectedDate] = cached;
+      notifyListeners();
+    }
+
+    try {
+      final res = await _api.createStructuredLog(
+        text: '$amountMl ml water',
+        extracted: {
+          'hydration_ml': amountMl,
+          'water_ml': amountMl,
+        },
+        source: 'water_quick',
+        loggedAt: effectiveLoggedAt,
+        clientId: clientId,
+      );
+
+      if (res != null) {
+        _dayViewCache.remove(_selectedDate);
+        await loadDayView(_selectedDate, silent: true);
+        return res.id;
+      }
+    } catch (_) {}
+
+    // Rollback if failed
+    await loadDayView(_selectedDate, silent: true);
+    return null;
+  }
+
+  Future<bool> logSavedMeal(String mealId, {double portion = 1.0}) async {
+    final effectiveLoggedAt = _effectiveDateTimeForSelectedDate();
+    final clientId = _uuid.v4();
+    try {
+      final res = await _api.logSavedMeal(
+        mealId,
+        portion: portion,
+        loggedAt: effectiveLoggedAt,
+        clientId: clientId,
+      );
+      if (res != null) {
+        _dayViewCache.remove(_selectedDate);
+        await loadDayView(_selectedDate);
+        await loadSavedMeals();
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  Future<bool> saveMealFromLog(String logId, {String? name}) async {
+    try {
+      final res = await _api.createSavedMeal(logId: logId, name: name);
+      if (res != null) {
+        await loadSavedMeals();
+        await loadSavedMealSuggestions();
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  Future<bool> createSavedMealManual({
+    required String name,
+    required Map<String, dynamic> extracted,
+    String? rawText,
+    bool pinned = false,
+  }) async {
+    try {
+      final res = await _api.createSavedMeal(
+        name: name,
+        extracted: extracted,
+        rawText: rawText,
+        pinned: pinned,
+      );
+      if (res != null) {
+        await loadSavedMeals();
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  Future<bool> updateSavedMeal(
+    String id, {
+    String? name,
+    String? rawText,
+    Map<String, dynamic>? extracted,
+    bool? pinned,
+  }) async {
+    try {
+      final res = await _api.updateSavedMeal(
+        id,
+        name: name,
+        rawText: rawText,
+        extracted: extracted,
+        pinned: pinned,
+      );
+      if (res != null) {
+        await loadSavedMeals();
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  Future<bool> deleteSavedMeal(String id) async {
+    try {
+      final ok = await _api.deleteSavedMeal(id);
+      if (ok) {
+        savedMeals.removeWhere((m) => m['id'] == id);
+        notifyListeners();
+        return true;
+      }
+    } catch (_) {}
+    return false;
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

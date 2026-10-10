@@ -596,6 +596,136 @@ class ApiService {
     } catch (_) {}
     return null;
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SAVED MEALS (Module 4)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  Future<List<Map<String, dynamic>>> getSavedMeals({String sort = 'frequent', int limit = 20}) async {
+    try {
+      final res = await http
+          .get(
+            Uri.parse('${ApiConstants.baseUrl}/api/saved-meals?sort=$sort&limit=$limit'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        return List<Map<String, dynamic>>.from(jsonDecode(res.body));
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<Map<String, dynamic>?> createSavedMeal({
+    String? logId,
+    String? name,
+    String? rawText,
+    Map<String, dynamic>? extracted,
+    bool pinned = false,
+  }) async {
+    try {
+      final body = <String, dynamic>{
+        if (logId != null) 'log_id': logId,
+        if (name != null) 'name': name,
+        if (rawText != null) 'raw_text': rawText,
+        if (extracted != null) 'extracted': extracted,
+        'pinned': pinned,
+      };
+      final res = await http
+          .post(
+            Uri.parse('${ApiConstants.baseUrl}/api/saved-meals'),
+            headers: _headers,
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 8));
+      if (res.statusCode == 201 || res.statusCode == 200) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<Map<String, dynamic>?> updateSavedMeal(
+    String id, {
+    String? name,
+    String? rawText,
+    Map<String, dynamic>? extracted,
+    bool? pinned,
+  }) async {
+    try {
+      final body = <String, dynamic>{
+        if (name != null) 'name': name,
+        if (rawText != null) 'raw_text': rawText,
+        if (extracted != null) 'extracted': extracted,
+        if (pinned != null) 'pinned': pinned,
+      };
+      final res = await http
+          .put(
+            Uri.parse('${ApiConstants.baseUrl}/api/saved-meals/$id'),
+            headers: _headers,
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<bool> deleteSavedMeal(String id) async {
+    try {
+      final res = await http
+          .delete(
+            Uri.parse('${ApiConstants.baseUrl}/api/saved-meals/$id'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 6));
+      return res.statusCode == 204 || res.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  Future<LogEntryModel?> logSavedMeal(
+    String id, {
+    double portion = 1.0,
+    DateTime? loggedAt,
+    String? clientId,
+  }) async {
+    try {
+      final body = <String, dynamic>{
+        'portion': portion,
+        if (loggedAt != null) 'logged_at': loggedAt.toIso8601String(),
+        if (clientId != null) 'client_id': clientId,
+      };
+      final res = await http
+          .post(
+            Uri.parse('${ApiConstants.baseUrl}/api/saved-meals/$id/log'),
+            headers: _headers,
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode == 201 || res.statusCode == 200) {
+        return LogEntryModel.fromJson(jsonDecode(res.body));
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<List<Map<String, dynamic>>> getSavedMealSuggestions() async {
+    try {
+      final res = await http
+          .get(
+            Uri.parse('${ApiConstants.baseUrl}/api/saved-meals/suggestions'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        return List<Map<String, dynamic>>.from(jsonDecode(res.body));
+      }
+    } catch (_) {}
+    return [];
+  }
 }
 
 extension DateHelper on DateTime {

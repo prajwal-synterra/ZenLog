@@ -9,6 +9,7 @@ import '../../services/sync_engine.dart';
 import '../../services/wake_service.dart';
 import '../../state/zen_state.dart';
 import '../auth/landing_screen.dart';
+import 'saved_meals_screen.dart';
 
 
 class ProfileScreen extends StatefulWidget {
@@ -233,7 +234,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final res = await ApiService().exportData(format: format);
       if (!mounted) return;
       if (res.ok && res.data != null) {
-        await SharePlus.instance.share(
+        await Share.share(
           res.data!,
           subject: 'ZenLog Data Export ($format)',
         );
@@ -582,9 +583,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const SizedBox(height: 24),
 
               // ── DATA & PRIVACY ───────────────────────────────────────────────
-              _SectionLabel(label: 'DATA & PRIVACY', t: t),
+              _SectionLabel(label: 'DATA & MEALS', t: t),
               const SizedBox(height: 10),
               _SettingsCard(t: t, children: [
+                _SettingsRow(
+                  label: 'Favorite meals',
+                  value: '${widget.state.savedMeals.length} saved',
+                  detail: '1-tap logging',
+                  t: t,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => SavedMealsScreen(state: widget.state),
+                      ),
+                    );
+                  },
+                ),
+                _Hairline(t: t),
                 _SettingsRow(
                   label: 'Export my data',
                   value: 'JSON / CSV',
