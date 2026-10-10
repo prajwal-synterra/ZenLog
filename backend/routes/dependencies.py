@@ -38,7 +38,7 @@ def get_auth_context(
 
     user = database["users"].find_one(
         {"user_id": session["user_id"]},
-        {"_id": 0, "phone_number": 0, "phone": 0},
+        {"_id": 0, "phone_number": 0, "phone": 0, "pin_hash": 0},
     )
     if user is None:
         raise unauthorized

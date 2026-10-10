@@ -19,6 +19,7 @@ from backend.routes.auth import router as auth_router
 from backend.routes.calendar import router as calendar_router
 from backend.routes.day_view import router as day_view_router
 from backend.routes.days import router as days_router
+from backend.routes.export import router as export_router
 from backend.routes.health import router as health_router
 from backend.routes.insights import router as insights_router
 from backend.routes.logs import router as logs_router
@@ -73,6 +74,17 @@ async def lifespan(app: FastAPI):
     # Sessions
     db["sessions"].create_index("token_hash", unique=True, name="session_token_unique")
     db["sessions"].create_index("expires_at", expireAfterSeconds=0, name="session_expiry_ttl")
+
+    # Login attempts (brute-force protection with 15-minute TTL)
+    db["login_attempts"].create_index(
+        "created_at",
+        expireAfterSeconds=900,
+        name="login_attempts_ttl",
+    )
+    db["login_attempts"].create_index(
+        [("username", 1), ("ip", 1), ("created_at", -1)],
+        name="login_attempts_lookup",
+    )
 
     db["daily_logs"].create_index(
         [("user_id", 1), ("date", 1), ("timestamp", 1)],
@@ -168,3 +180,4 @@ app.include_router(users_router)
 app.include_router(calendar_router)
 app.include_router(stats_router)
 app.include_router(insights_router)
+app.include_router(export_router)

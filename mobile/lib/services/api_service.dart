@@ -64,9 +64,10 @@ class ApiService {
   // AUTH
   // ─────────────────────────────────────────────────────────────────────────
 
-  Future<Map<String, dynamic>?> login({
+  Future<({bool ok, Map<String, dynamic>? data, String? error, int statusCode})> login({
     required String username,
-    required String phone,
+    String? pin,
+    String? phone,
     String? deviceId,
     String? deviceName,
   }) async {
@@ -80,18 +81,57 @@ class ApiService {
             },
             body: jsonEncode({
               'username': username,
-              'phone_number': phone,
+              if (pin != null && pin.isNotEmpty) 'pin': pin,
+              if (phone != null && phone.isNotEmpty) 'phone_number': phone,
               if (deviceId != null) 'device_id': deviceId,
               if (deviceName != null) 'device_name': deviceName,
             }),
           )
-          .timeout(const Duration(seconds: 8));
+          .timeout(const Duration(seconds: 12));
 
       if (res.statusCode == 200) {
-        return jsonDecode(res.body) as Map<String, dynamic>;
+        return (
+          ok: true,
+          data: jsonDecode(res.body) as Map<String, dynamic>,
+          error: null,
+          statusCode: 200,
+        );
       }
-    } catch (_) {}
-    return null;
+
+      String errorMessage = 'Username or PIN incorrect.';
+      if (res.statusCode == 429) {
+        errorMessage = 'Too many attempts, try in 15 minutes.';
+      } else {
+        try {
+          final decoded = jsonDecode(res.body);
+          if (decoded is Map && decoded['detail'] != null) {
+            errorMessage = decoded['detail'].toString();
+          }
+        } catch (_) {}
+      }
+      return (ok: false, data: null, error: errorMessage, statusCode: res.statusCode);
+    } catch (_) {
+      return (ok: false, data: null, error: 'Connection error. Please try again.', statusCode: 0);
+    }
+  }
+
+  /// Exports user's logs and data (Section 3.2). format can be 'json' or 'csv'.
+  Future<({bool ok, String? data, String? error})> exportData({String format = 'json'}) async {
+    try {
+      final res = await http
+          .get(
+            Uri.parse('${ApiConstants.baseUrl}/api/export?format=$format'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 25));
+
+      if (res.statusCode == 200) {
+        return (ok: true, data: res.body, error: null);
+      }
+      return (ok: false, data: null, error: 'Failed to export data (${res.statusCode})');
+    } catch (e) {
+      return (ok: false, data: null, error: e.toString());
+    }
   }
 
   Future<Map<String, dynamic>?> getMe() async {

@@ -7,7 +7,8 @@ class LoginRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     username: str = Field(min_length=1, max_length=64)
-    phone_number: str = Field(min_length=8, max_length=20)
+    pin: str | None = Field(default=None, min_length=4, max_length=12)
+    phone_number: str | None = Field(default=None, max_length=20)
     device_id: str | None = Field(default=None, max_length=128)
     device_name: str | None = Field(default=None, max_length=128)
 

@@ -20,14 +20,20 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final ApiService _api = ApiService();
   final TextEditingController _usernameController = TextEditingController();
+  final TextEditingController _pinController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
+  final FocusNode _pinFocus = FocusNode();
   final FocusNode _phoneFocus = FocusNode();
+
+  bool _obscurePin = true;
+  bool _showPhoneFallback = false;
   bool _isLoading = false;
   String? _errorMessage;
 
   bool get _canSubmit =>
       _usernameController.text.trim().isNotEmpty &&
-      _phoneController.text.trim().length >= 8 &&
+      (_pinController.text.trim().length >= 4 ||
+          (_showPhoneFallback && _phoneController.text.trim().length >= 8)) &&
       !_isLoading;
 
   @override
@@ -35,6 +41,7 @@ class _LoginScreenState extends State<LoginScreen> {
     super.initState();
     _loadSavedCredentials();
     _usernameController.addListener(() => setState(() {}));
+    _pinController.addListener(() => setState(() {}));
     _phoneController.addListener(() => setState(() {}));
   }
 
@@ -48,7 +55,9 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void dispose() {
     _usernameController.dispose();
+    _pinController.dispose();
     _phoneController.dispose();
+    _pinFocus.dispose();
     _phoneFocus.dispose();
     super.dispose();
   }
@@ -56,6 +65,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _login() async {
     if (!_canSubmit) return;
     final username = _usernameController.text.trim();
+    final pin = _pinController.text.trim();
     final phone = _phoneController.text.trim().replaceAll(RegExp(r'[^\d+]'), '');
 
     FocusScope.of(context).unfocus();
@@ -67,15 +77,16 @@ class _LoginScreenState extends State<LoginScreen> {
     final deviceId = await AuthStorage.getOrCreateDeviceId();
     final result = await _api.login(
       username: username,
-      phone: phone,
+      pin: pin.isNotEmpty ? pin : null,
+      phone: (_showPhoneFallback && phone.isNotEmpty) ? phone : null,
       deviceId: deviceId,
       deviceName: 'Flutter App',
     );
 
     if (!mounted) return;
 
-    if (result != null) {
-      final token = result['access_token'] as String?;
+    if (result.ok && result.data != null) {
+      final token = result.data!['access_token'] as String?;
       if (token != null) {
         _api.setToken(token);
         await AuthStorage.saveToken(token);
@@ -91,7 +102,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } else {
       setState(() {
         _isLoading = false;
-        _errorMessage = 'Username and phone number don\'t match.';
+        _errorMessage = result.error ?? 'Username or PIN incorrect.';
       });
     }
   }
@@ -150,7 +161,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Use the username and phone\nnumber you were set up with.',
+                  'Enter your username and security PIN to continue.',
                   style: TextStyle(
                     color: t.inkMuted,
                     fontSize: 15,
@@ -171,7 +182,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   textInputAction: TextInputAction.next,
                   autocorrect: false,
                   style: TextStyle(color: t.ink, fontSize: 16),
-                  onSubmitted: (_) => FocusScope.of(context).requestFocus(_phoneFocus),
+                  onSubmitted: (_) => FocusScope.of(context).requestFocus(_pinFocus),
                   decoration: InputDecoration(
                     hintText: 'e.g. prajwal',
                     filled: true,
@@ -196,22 +207,35 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 16),
 
                 Text(
-                  'Phone number',
+                  'Security PIN',
                   style: TextStyle(color: t.inkMuted, fontSize: 13, fontWeight: FontWeight.w500),
                 ),
                 const SizedBox(height: 6),
                 TextField(
-                  controller: _phoneController,
-                  focusNode: _phoneFocus,
-                  keyboardType: TextInputType.phone,
+                  controller: _pinController,
+                  focusNode: _pinFocus,
+                  keyboardType: TextInputType.number,
+                  obscureText: _obscurePin,
                   textInputAction: TextInputAction.done,
-                  inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d+ ]'))],
-                  style: TextStyle(color: t.ink, fontSize: 16),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(8),
+                  ],
+                  style: TextStyle(color: t.ink, fontSize: 16, letterSpacing: 2),
                   onSubmitted: (_) => _login(),
                   decoration: InputDecoration(
-                    hintText: '+91 98765 43210',
+                    hintText: '••••',
+                    hintStyle: TextStyle(color: t.inkFaint, letterSpacing: 2),
                     filled: true,
                     fillColor: t.surfaceAlt,
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _obscurePin ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                        color: t.inkMuted,
+                        size: 20,
+                      ),
+                      onPressed: () => setState(() => _obscurePin = !_obscurePin),
+                    ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: BorderSide(color: t.line),
@@ -225,9 +249,60 @@ class _LoginScreenState extends State<LoginScreen> {
                       borderSide: BorderSide(color: t.ink, width: 2),
                     ),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                    hintStyle: TextStyle(color: t.inkFaint),
                   ),
                 ),
+
+                const SizedBox(height: 10),
+
+                GestureDetector(
+                  onTap: () => setState(() => _showPhoneFallback = !_showPhoneFallback),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text(
+                      _showPhoneFallback
+                          ? 'Hide phone login'
+                          : "Don't have a PIN yet? Log in with phone number",
+                      style: TextStyle(color: t.inkMuted, fontSize: 13, decoration: TextDecoration.underline),
+                    ),
+                  ),
+                ),
+
+                if (_showPhoneFallback) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'Phone number',
+                    style: TextStyle(color: t.inkMuted, fontSize: 13, fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(
+                    controller: _phoneController,
+                    focusNode: _phoneFocus,
+                    keyboardType: TextInputType.phone,
+                    textInputAction: TextInputAction.done,
+                    inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d+ ]'))],
+                    style: TextStyle(color: t.ink, fontSize: 16),
+                    onSubmitted: (_) => _login(),
+                    decoration: InputDecoration(
+                      hintText: '+91 98765 43210',
+                      filled: true,
+                      fillColor: t.surfaceAlt,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: t.line),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: t.line),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide(color: t.ink, width: 2),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      hintStyle: TextStyle(color: t.inkFaint),
+                    ),
+                  ),
+                ],
 
                 // ── Error message ──
                 if (_errorMessage != null) ...[

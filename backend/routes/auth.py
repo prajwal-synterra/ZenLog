@@ -2,9 +2,15 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pymongo.database import Database
 
+from backend.core.security import (
+    check_login_rate_limit,
+    get_client_ip,
+    record_login_attempt,
+    verify_pin,
+)
 from backend.models.auth import LoginRequest, LoginResponse, LogoutResponse, UserResponse
 from backend.routes.dependencies import get_auth_context, get_database
 
@@ -17,30 +23,53 @@ SESSION_ROLLING_THRESHOLD = timedelta(days=1)
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(payload: LoginRequest, database: Database = Depends(get_database)):
-    raw_phone = payload.phone_number.strip().replace(" ", "").replace("-", "")
-    digits_only = raw_phone.lstrip("+")
-    last10 = digits_only[-10:] if len(digits_only) >= 10 else digits_only
+def login(
+    payload: LoginRequest,
+    request: Request,
+    database: Database = Depends(get_database),
+):
+    client_ip = get_client_ip(request)
+    normalized_username = payload.username.lower().strip()
 
-    user = database["users"].find_one(
-        {
-            "username": payload.username,
-            "$or": [
-                {"phone_number": payload.phone_number},
-                {"phone_number": raw_phone},
-                {"phone_number": digits_only},
-                {"phone_number": last10},
-                {"phone_number": f"+91{last10}"},
-                {"phone_number": f"91{last10}"},
-            ],
-        },
-        {"_id": 0},
-    )
+    # 1. Rate-limit check (5 failures per username/IP -> 15 min lockout, 429)
+    check_login_rate_limit(database, normalized_username, client_ip)
+
+    # 2. Lookup user
+    user = database["users"].find_one({"username": normalized_username})
     if user is None:
+        record_login_attempt(database, normalized_username, client_ip, success=False)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or phone number.",
+            detail="Username or PIN incorrect.",
         )
+
+    # 3. Authenticate with PIN or transitional phone check
+    pin_hash = user.get("pin_hash")
+    authenticated = False
+
+    if pin_hash:
+        # User has a configured PIN: must match
+        if payload.pin and verify_pin(payload.pin, pin_hash):
+            authenticated = True
+    else:
+        # Transitional migration mode (before PIN set via CLI): allow phone match
+        if payload.phone_number:
+            raw_phone = payload.phone_number.strip().replace(" ", "").replace("-", "")
+            digits_only = raw_phone.lstrip("+")
+            last10 = digits_only[-10:] if len(digits_only) >= 10 else digits_only
+            user_phone = str(user.get("phone_number") or user.get("phone") or "")
+            if user_phone and (user_phone in [raw_phone, digits_only, last10, f"+91{last10}", f"91{last10}"] or last10 in user_phone):
+                authenticated = True
+
+    if not authenticated:
+        record_login_attempt(database, normalized_username, client_ip, success=False)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Username or PIN incorrect.",
+        )
+
+    # 4. Successful login: clear lockout count
+    record_login_attempt(database, normalized_username, client_ip, success=True)
 
     now = datetime.now(timezone.utc)
     token = secrets.token_urlsafe(48)

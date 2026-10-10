@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../core/theme/zen_colors.dart';
+import '../../services/api_service.dart';
 import '../../services/auth_storage.dart';
 import '../../services/connection_monitor.dart';
 import '../../services/sync_engine.dart';
@@ -147,6 +149,102 @@ class _ProfileScreenState extends State<ProfileScreen> {
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       ),
     );
+  }
+
+  Future<void> _exportData() async {
+    final t = context.zen;
+    final format = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return Container(
+          decoration: BoxDecoration(
+            color: t.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            border: Border.all(color: t.line),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                    color: t.line,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Text(
+                'Export My Data',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: t.ink),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Choose format to export your personal ZenLog history:',
+                style: TextStyle(fontSize: 13, color: t.inkMuted, height: 1.4),
+              ),
+              const SizedBox(height: 18),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: t.surfaceAlt,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.data_object_rounded, color: t.ink),
+                ),
+                title: Text('JSON Format', style: TextStyle(fontWeight: FontWeight.w600, color: t.ink)),
+                subtitle: Text('Complete archive: logs, daily views, sleep/wake, goals', style: TextStyle(fontSize: 12, color: t.inkMuted)),
+                trailing: Icon(Icons.arrow_forward_ios_rounded, size: 14, color: t.inkMuted),
+                onTap: () => Navigator.pop(sheetCtx, 'json'),
+              ),
+              Divider(color: t.line, height: 16),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: t.surfaceAlt,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.table_chart_rounded, color: t.ink),
+                ),
+                title: Text('CSV Format', style: TextStyle(fontWeight: FontWeight.w600, color: t.ink)),
+                subtitle: Text('Spreadsheet table of all your food & activity logs', style: TextStyle(fontSize: 12, color: t.inkMuted)),
+                trailing: Icon(Icons.arrow_forward_ios_rounded, size: 14, color: t.inkMuted),
+                onTap: () => Navigator.pop(sheetCtx, 'csv'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (format == null || !mounted) return;
+
+    _showToast('Preparing your $format export…');
+    try {
+      final res = await ApiService().exportData(format: format);
+      if (!mounted) return;
+      if (res.ok && res.data != null) {
+        await SharePlus.instance.share(
+          res.data!,
+          subject: 'ZenLog Data Export ($format)',
+        );
+      } else {
+        _showToast(res.error ?? 'Export failed. Please try again.');
+      }
+    } catch (e) {
+      if (mounted) {
+        _showToast('Export failed: $e');
+      }
+    }
   }
 
   Future<void> _logout() async {
@@ -478,6 +576,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       weeklyWorkoutTarget: workouts,
                     ),
                   ),
+                ),
+              ]),
+
+              const SizedBox(height: 24),
+
+              // ── DATA & PRIVACY ───────────────────────────────────────────────
+              _SectionLabel(label: 'DATA & PRIVACY', t: t),
+              const SizedBox(height: 10),
+              _SettingsCard(t: t, children: [
+                _SettingsRow(
+                  label: 'Export my data',
+                  value: 'JSON / CSV',
+                  detail: 'Share or backup',
+                  t: t,
+                  onTap: _exportData,
                 ),
               ]),
 

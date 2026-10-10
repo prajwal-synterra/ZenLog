@@ -21,6 +21,7 @@ def test_m2_logging_endpoints():
         # 1. Login test user
         login_res = client.post("/api/auth/login", json={
             "username": "testuser1",
+            "pin": "4321",
             "phone_number": "9000000001",
         })
         assert login_res.status_code == 200, f"Login failed: {login_res.text}"
