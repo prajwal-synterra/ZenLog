@@ -165,7 +165,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         final dateSlug = DateTime.now().toIso8601String().split('T').first;
         final file = File('${tempDir.path}/ZenLog_Export_$dateSlug.xlsx');
         await file.writeAsBytes(res.bytes!);
-        await SharePlus.instance.shareXFiles(
+        await Share.shareXFiles(
           [XFile(file.path, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')],
           subject: 'ZenLog Excel Export ($dateSlug)',
         );
