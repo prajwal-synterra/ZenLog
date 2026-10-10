@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
 import '../../core/theme/zen_colors.dart';
 import '../../core/theme/zen_theme_controller.dart';
 import '../../state/zen_state.dart';
 import '../../services/wake_service.dart';
+import '../../services/api_service.dart';
 import '../profile/saved_meals_screen.dart';
+import '../camera/photo_meal_sheet.dart';
+import '../camera/label_scan_screen.dart';
+import '../foods/my_products_screen.dart';
 import 'widgets/morning_walk_card.dart';
 
 
@@ -1032,10 +1038,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     // Worst status for pace chip
     final proteinStatus = (progress['protein'] as Map?)?['status'] as String? ?? 'on_track';
     final waterStatus = (progress['water'] as Map?)?['status'] as String? ?? 'on_track';
-    final calStatus = calTarget != null
-        ? ((progress['calories'] as Map?)?['status'] as String? ?? 'on_track')
-        : 'on_track';
-    final worstStatus = _worstStatus([proteinStatus, waterStatus, if (calTarget != null) calStatus]);
+    final calStatus = (progress['calories'] as Map?)?['status'] as String? ?? 'on_track';
+    final worstStatus = _worstStatus([proteinStatus, waterStatus, calStatus]);
 
     return _ZenCard(
       t: t,
@@ -1081,17 +1085,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             t: t,
             trailingAction: _buildWaterQuickButtons(t),
           ),
-          if (calTarget != null) ...[
-            const SizedBox(height: 12),
-            _PaceRow(
-              label: 'Calories',
-              actual: calActual,
-              target: calTarget,
-              unit: 'kcal',
-              status: calStatus,
-              t: t,
-            ),
-          ],
+          const SizedBox(height: 12),
+          _PaceRow(
+            label: 'Calories',
+            actual: calActual,
+            target: calTarget,
+            unit: 'kcal',
+            status: calStatus,
+            t: t,
+          ),
           const SizedBox(height: 14),
           // Workout row
           Row(
@@ -1866,6 +1868,26 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
+                  GestureDetector(
+                    onTap: _showCameraActionSheet,
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: t.surfaceAlt,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: t.line),
+                      ),
+                      child: Center(
+                        child: Icon(
+                          Icons.camera_alt_outlined,
+                          size: 20,
+                          color: t.ink,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 200),
@@ -1938,6 +1960,207 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ),
       ),
     );
+  }
+
+  Future<void> _showCameraActionSheet() async {
+    final t = context.zen;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) {
+        return Container(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+          decoration: BoxDecoration(
+            color: t.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: t.line,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Camera & Food Scans',
+                style: GoogleFonts.inter(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: t.ink,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: t.successTint,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.lunch_dining_rounded, color: t.successText, size: 20),
+                ),
+                title: Text(
+                  'Meal Photo Log',
+                  style: GoogleFonts.inter(fontSize: 14.5, fontWeight: FontWeight.w600, color: t.ink),
+                ),
+                subtitle: Text(
+                  'Photograph your plate · AI estimates items & macros',
+                  style: TextStyle(fontSize: 12, color: t.inkMuted),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  _handlePhotoMealCapture();
+                },
+              ),
+              const Divider(height: 12),
+              ListTile(
+                leading: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: t.infoTint,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.qr_code_scanner_rounded, color: t.infoText, size: 20),
+                ),
+                title: Text(
+                  'Packaged Food Label Scanner',
+                  style: GoogleFonts.inter(fontSize: 14.5, fontWeight: FontWeight.w600, color: t.ink),
+                ),
+                subtitle: Text(
+                  'Scan nutrition facts · 0-100 rating & day impact',
+                  style: TextStyle(fontSize: 12, color: t.inkMuted),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  LabelScanScreen.push(context, widget.state);
+                },
+              ),
+              const Divider(height: 12),
+              ListTile(
+                leading: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: t.surfaceAlt,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Icon(Icons.bookmark_added_rounded, color: t.accent, size: 20),
+                ),
+                title: Text(
+                  'My Saved Products',
+                  style: GoogleFonts.inter(fontSize: 14.5, fontWeight: FontWeight.w600, color: t.ink),
+                ),
+                subtitle: Text(
+                  'Browse and log your saved packaged foods',
+                  style: TextStyle(fontSize: 12, color: t.inkMuted),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetCtx);
+                  MyProductsScreen.push(context, widget.state);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _handlePhotoMealCapture() async {
+    final picker = ImagePicker();
+    final t = context.zen;
+
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+        decoration: BoxDecoration(
+          color: t.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Capture Plate Photo', style: GoogleFonts.inter(fontSize: 15, fontWeight: FontWeight.w700, color: t.ink)),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: Icon(Icons.camera_alt_outlined, color: t.ink),
+              title: const Text('Take photo with camera'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: Icon(Icons.photo_library_outlined, color: t.ink),
+              title: const Text('Choose from gallery'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (source == null) return;
+
+    final picked = await picker.pickImage(source: source, maxWidth: 1280, maxHeight: 1280, imageQuality: 85);
+    if (picked == null) return;
+
+    final imageFile = File(picked.path);
+
+    // Show analyzing dialog
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dlgCtx) => AlertDialog(
+        backgroundColor: t.surface,
+        content: Row(
+          children: [
+            SizedBox(
+              width: 24,
+              height: 24,
+              child: CircularProgressIndicator(strokeWidth: 2, color: t.accent),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                'Analyzing meal with AI…',
+                style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600, color: t.ink),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    final res = await ApiService().analyzeMealPhoto(imageFile);
+    if (!mounted) return;
+    Navigator.pop(context); // close analyzing dialog
+
+    if (res.ok && res.data != null) {
+      PhotoMealReviewSheet.show(
+        context,
+        state: widget.state,
+        imageFile: imageFile,
+        draftData: res.data!,
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res.error ?? 'Could not analyze photo. Please try again.'),
+          backgroundColor: t.dangerFill,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   Widget _buildPastDayComposerBanner(ZenState state, ZenThemeTokens t) {

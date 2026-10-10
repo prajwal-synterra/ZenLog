@@ -55,3 +55,63 @@ def generate_structured(model: type[T], prompt: str) -> tuple[T, str]:
             failures.append(f"{model_name}: {type(error).__name__}")
 
     raise RuntimeError("Gemini models failed: " + "; ".join(failures))
+
+
+def generate_multimodal_structured(
+    model: type[T],
+    prompt: str,
+    images: list[tuple[bytes, str]],
+) -> tuple[T, str]:
+    """
+    Multimodal generation: sends images + prompt to Gemini and parses response into Pydantic model.
+    images: list of (image_bytes, mime_type)
+    """
+    api_key = os.getenv("GEMINI_API_KEY")
+    primary_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    fallback_models = os.getenv("GEMINI_FALLBACK_MODELS")
+    if fallback_models:
+        model_names = [primary_model, *(name.strip() for name in fallback_models.split(",") if name.strip())]
+    else:
+        model_names = [
+            primary_model,
+            os.getenv("GEMINI_FALLBACK_MODEL", "gemini-2.0-flash"),
+        ]
+    model_names = list(dict.fromkeys(model_names))
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is not configured in backend/.env.")
+
+    client = genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(
+            timeout=20000,
+            retry_options=types.HttpRetryOptions(attempts=1),
+        ),
+    )
+
+    contents: list[types.Part | str] = [
+        types.Part.from_bytes(data=img_bytes, mime_type=mime_type)
+        for img_bytes, mime_type in images
+    ]
+    contents.append(prompt)
+
+    failures = []
+    for model_name in model_names:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                    response_mime_type="application/json",
+                    response_schema=model,
+                ),
+            )
+            if response.parsed is not None:
+                return model.model_validate(response.parsed), model_name
+            if response.text:
+                return model.model_validate_json(response.text), model_name
+            raise ValueError("Gemini returned an empty structured response.")
+        except Exception as error:
+            failures.append(f"{model_name}: {type(error).__name__}")
+
+    raise RuntimeError("Gemini multimodal models failed: " + "; ".join(failures))

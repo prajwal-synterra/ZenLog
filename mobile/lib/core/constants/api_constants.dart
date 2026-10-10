@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart';
-
 class ApiConstants {
   // Use 10.0.2.2 for Android emulator, 127.0.0.1 for Web and Windows desktop
   static String get baseUrl {
@@ -21,4 +19,7 @@ class ApiConstants {
   static const String statsMonthly = '/api/stats/monthly';
   static const String insightsWeekly = '/api/insights/weekly';
   static const String insightsMonthly = '/api/insights/monthly';
+  static const String photoAnalyze = '/api/logs/photo/analyze';
+  static const String foodScan = '/api/foods/scan';
+  static const String foodProducts = '/api/foods/products';
 }

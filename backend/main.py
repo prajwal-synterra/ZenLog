@@ -23,6 +23,8 @@ from backend.routes.export import router as export_router
 from backend.routes.health import router as health_router
 from backend.routes.insights import router as insights_router
 from backend.routes.logs import router as logs_router
+from backend.routes.food_scan import router as food_scan_router
+from backend.routes.photo_meal import router as photo_meal_router
 from backend.routes.quotes import router as quotes_router
 from backend.routes.saved_meals import router as saved_meals_router
 from backend.routes.stats import router as stats_router
@@ -152,6 +154,29 @@ async def lifespan(app: FastAPI):
         name="user_kind_range_unique",
     )
 
+    # Food scans (Module 7 - TTL 7 days)
+    db["food_scans"].create_index(
+        "created_at",
+        expireAfterSeconds=604800,
+        name="food_scans_ttl",
+    )
+    db["food_scans"].create_index(
+        [("user_id", 1), ("scan_id", 1)],
+        unique=True,
+        name="food_scans_user_scan_unique",
+    )
+
+    # Products (Module 7 - My Products)
+    db["products"].create_index(
+        [("user_id", 1), ("name_key", 1)],
+        unique=True,
+        name="products_user_namekey_unique",
+    )
+    db["products"].create_index(
+        [("user_id", 1), ("times_logged", -1)],
+        name="products_user_times_logged",
+    )
+
     # Pre-seed default quotes pool if empty
     seed_default_quotes(db)
 
@@ -187,6 +212,8 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(logs_router)
+app.include_router(photo_meal_router)
+app.include_router(food_scan_router)
 app.include_router(day_view_router)   # New v2 day view (mounted before legacy days router)
 app.include_router(days_router)       # Legacy: /api/days/prompt-status, wake, sleep, etc.
 app.include_router(quotes_router)     # Quotes: /api/quotes/{day}

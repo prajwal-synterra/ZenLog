@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../core/constants/api_constants.dart';
 import '../models/user_model.dart';
@@ -774,6 +775,233 @@ class ApiService {
       }
     } catch (_) {}
     return [];
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // MODULE 6: PHOTO MEAL LOGGING
+  // ─────────────────────────────────────────────────────────────────────────
+
+  Future<({bool ok, Map<String, dynamic>? data, String? error})> analyzeMealPhoto(
+    File photo, {
+    String? hint,
+  }) async {
+    try {
+      final uri = Uri.parse('${ApiConstants.baseUrl}${ApiConstants.photoAnalyze}');
+      final request = http.MultipartRequest('POST', uri);
+      request.headers.addAll({
+        'ngrok-skip-browser-warning': 'true',
+        if (_token != null) 'Authorization': 'Bearer $_token',
+      });
+      request.files.add(await http.MultipartFile.fromPath('photo', photo.path));
+      if (hint != null && hint.trim().isNotEmpty) {
+        request.fields['hint'] = hint.trim();
+      }
+
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 45));
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return (ok: true, data: decoded, error: null);
+      } else {
+        String msg = 'Failed to analyze photo.';
+        try {
+          final b = jsonDecode(response.body);
+          if (b is Map && b['detail'] != null) msg = b['detail'].toString();
+        } catch (_) {}
+        return (ok: false, data: null, error: msg);
+      }
+    } catch (e) {
+      return (ok: false, data: null, error: 'Connection error: $e');
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // MODULE 7: FOOD LABEL SCANNER & MY PRODUCTS
+  // ─────────────────────────────────────────────────────────────────────────
+
+  Future<({bool ok, Map<String, dynamic>? data, String? error})> scanFoodLabel({
+    List<File>? images,
+    String? ocrText,
+  }) async {
+    try {
+      final uri = Uri.parse('${ApiConstants.baseUrl}${ApiConstants.foodScan}');
+      final request = http.MultipartRequest('POST', uri);
+      request.headers.addAll({
+        'ngrok-skip-browser-warning': 'true',
+        if (_token != null) 'Authorization': 'Bearer $_token',
+      });
+
+      if (images != null) {
+        for (final img in images) {
+          request.files.add(await http.MultipartFile.fromPath('images', img.path));
+        }
+      }
+
+      if (ocrText != null && ocrText.trim().isNotEmpty) {
+        request.fields['ocr_text'] = ocrText.trim();
+      }
+
+      final streamedResponse = await request.send().timeout(const Duration(seconds: 45));
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+        return (ok: true, data: decoded, error: null);
+      } else {
+        String msg = 'Failed to scan food label.';
+        try {
+          final b = jsonDecode(response.body);
+          if (b is Map && b['detail'] != null) msg = b['detail'].toString();
+        } catch (_) {}
+        return (ok: false, data: null, error: msg);
+      }
+    } catch (e) {
+      return (ok: false, data: null, error: 'Connection error: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>?> updateFoodScan(String scanId, Map<String, dynamic> updateData) async {
+    try {
+      final res = await http
+          .put(
+            Uri.parse('${ApiConstants.baseUrl}${ApiConstants.foodScan}/$scanId'),
+            headers: _headers,
+            body: jsonEncode(updateData),
+          )
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<Map<String, dynamic>?> evaluateFoodScan(
+    String scanId, {
+    double? servings,
+    double? grams,
+    String? day,
+  }) async {
+    try {
+      final body = <String, dynamic>{
+        if (servings != null) 'servings': servings,
+        if (grams != null) 'grams': grams,
+        if (day != null) 'day': day,
+      };
+      final res = await http
+          .post(
+            Uri.parse('${ApiConstants.baseUrl}${ApiConstants.foodScan}/$scanId/evaluate'),
+            headers: _headers,
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<LogEntryModel?> logFoodScan(
+    String scanId, {
+    double? servings,
+    double? grams,
+    DateTime? loggedAt,
+    String? clientId,
+  }) async {
+    try {
+      final body = <String, dynamic>{
+        if (servings != null) 'servings': servings,
+        if (grams != null) 'grams': grams,
+        if (loggedAt != null) 'logged_at': loggedAt.toIso8601String(),
+        if (clientId != null) 'client_id': clientId,
+      };
+      final res = await http
+          .post(
+            Uri.parse('${ApiConstants.baseUrl}${ApiConstants.foodScan}/$scanId/log'),
+            headers: _headers,
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 12));
+      if (res.statusCode == 201 || res.statusCode == 200) {
+        return LogEntryModel.fromJson(jsonDecode(res.body));
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<Map<String, dynamic>?> saveProduct(Map<String, dynamic> productData) async {
+    try {
+      final res = await http
+          .post(
+            Uri.parse('${ApiConstants.baseUrl}${ApiConstants.foodProducts}'),
+            headers: _headers,
+            body: jsonEncode(productData),
+          )
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<List<Map<String, dynamic>>> getProducts({String? q}) async {
+    try {
+      final queryParam = (q != null && q.trim().isNotEmpty) ? '?q=${Uri.encodeComponent(q.trim())}' : '';
+      final res = await http
+          .get(
+            Uri.parse('${ApiConstants.baseUrl}${ApiConstants.foodProducts}$queryParam'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        return List<Map<String, dynamic>>.from(jsonDecode(res.body));
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<LogEntryModel?> logProduct(
+    String productId, {
+    double? servings,
+    double? grams,
+    DateTime? loggedAt,
+    String? clientId,
+  }) async {
+    try {
+      final body = <String, dynamic>{
+        if (servings != null) 'servings': servings,
+        if (grams != null) 'grams': grams,
+        if (loggedAt != null) 'logged_at': loggedAt.toIso8601String(),
+        if (clientId != null) 'client_id': clientId,
+      };
+      final res = await http
+          .post(
+            Uri.parse('${ApiConstants.baseUrl}${ApiConstants.foodProducts}/$productId/log'),
+            headers: _headers,
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode == 201 || res.statusCode == 200) {
+        return LogEntryModel.fromJson(jsonDecode(res.body));
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<bool> deleteProduct(String productId) async {
+    try {
+      final res = await http
+          .delete(
+            Uri.parse('${ApiConstants.baseUrl}${ApiConstants.foodProducts}/$productId'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 6));
+      return res.statusCode == 204 || res.statusCode == 200;
+    } catch (_) {}
+    return false;
   }
 }
 

@@ -356,6 +356,88 @@ class ZenState extends ChangeNotifier with WidgetsBindingObserver {
     return false;
   }
 
+  Future<bool> addStructuredLog({
+    required String text,
+    required Map<String, dynamic> extracted,
+    String source = 'structured',
+    Map<String, dynamic>? meta,
+    DateTime? loggedAt,
+  }) async {
+    try {
+      final clientId = _uuid.v4();
+      final effectiveLoggedAt = loggedAt ?? _effectiveDateTimeForSelectedDate();
+      final created = await _api.createStructuredLog(
+        text: text,
+        extracted: extracted,
+        source: source,
+        meta: meta,
+        loggedAt: effectiveLoggedAt,
+        clientId: clientId,
+      );
+      if (created != null) {
+        _dayViewCache.remove(_selectedDate);
+        if (created.date.isNotEmpty && created.date != _selectedDate) {
+          _dayViewCache.remove(created.date);
+        }
+        await loadDayView(_selectedDate);
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> logFoodScan(String scanId, {double? servings, double? grams, DateTime? loggedAt}) async {
+    try {
+      final clientId = _uuid.v4();
+      final effectiveLoggedAt = loggedAt ?? _effectiveDateTimeForSelectedDate();
+      final created = await _api.logFoodScan(
+        scanId,
+        servings: servings,
+        grams: grams,
+        loggedAt: effectiveLoggedAt,
+        clientId: clientId,
+      );
+      if (created != null) {
+        _dayViewCache.remove(_selectedDate);
+        if (created.date.isNotEmpty && created.date != _selectedDate) {
+          _dayViewCache.remove(created.date);
+        }
+        await loadDayView(_selectedDate);
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> logProduct(String productId, {double? servings, double? grams, DateTime? loggedAt}) async {
+    try {
+      final clientId = _uuid.v4();
+      final effectiveLoggedAt = loggedAt ?? _effectiveDateTimeForSelectedDate();
+      final created = await _api.logProduct(
+        productId,
+        servings: servings,
+        grams: grams,
+        loggedAt: effectiveLoggedAt,
+        clientId: clientId,
+      );
+      if (created != null) {
+        _dayViewCache.remove(_selectedDate);
+        if (created.date.isNotEmpty && created.date != _selectedDate) {
+          _dayViewCache.remove(created.date);
+        }
+        await loadDayView(_selectedDate);
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // ── Analyze / Verdict ─────────────────────────────────────────────────────
 
   bool _isAnalyzing = false;
