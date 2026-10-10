@@ -1,7 +1,13 @@
 class ApiConstants {
-  // Use 10.0.2.2 for Android emulator, 127.0.0.1 for Web and Windows desktop
+  // Toggle between Ngrok (local testing) and Render (production)
+  static const bool useNgrok = true;
+  static const String ngrokUrl = 'https://dawdlingly-pseudoinsane-pa.ngrok-free.dev';
+  static const String renderUrl = 'https://zenlog-zma5.onrender.com';
+
   static String get baseUrl {
-    return 'https://zenlog-zma5.onrender.com';
+    const fromEnv = String.fromEnvironment('BASE_URL');
+    if (fromEnv.isNotEmpty) return fromEnv;
+    return useNgrok ? ngrokUrl : renderUrl;
   }
 
   // Endpoints
