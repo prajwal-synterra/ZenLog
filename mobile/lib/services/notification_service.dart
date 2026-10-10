@@ -95,13 +95,24 @@ class NotificationService {
 
   /// Registers token with ZenLog backend if user has an active session.
   Future<void> syncToken() async {
-    if (_fcmToken == null || _fcmToken!.isEmpty) return;
     try {
+      if (_fcmToken == null || _fcmToken!.isEmpty) {
+        _fcmToken = await FirebaseMessaging.instance.getToken();
+      }
+      if (_fcmToken == null || _fcmToken!.isEmpty) return;
+
       final token = await AuthStorage.getToken();
       if (token != null && token.isNotEmpty) {
         final deviceId = await AuthStorage.getOrCreateDeviceId();
-        await ApiService().registerFcmToken(_fcmToken!, deviceId: deviceId);
+        final success = await ApiService().registerFcmToken(_fcmToken!, deviceId: deviceId);
+        if (kDebugMode) {
+          print('FCM Token synced to backend: $success for device: $deviceId');
+        }
       }
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) {
+        print('FCM Token sync error: $e');
+      }
+    }
   }
 }

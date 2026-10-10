@@ -7,6 +7,7 @@ import '../services/auth_storage.dart';
 import '../services/quote_storage.dart';
 import '../services/sleep_wake_storage.dart';
 import '../screens/home/widgets/sleep_wake_dialogs.dart';
+import '../services/notification_service.dart';
 import 'package:uuid/uuid.dart';
 
 /// Single source of truth for the entire app.
@@ -131,6 +132,7 @@ class ZenState extends ChangeNotifier with WidgetsBindingObserver {
     ensureQuoteLoaded(_selectedDate);
     loadSavedMeals();
     loadSavedMealSuggestions();
+    NotificationService().syncToken();
 
     WidgetsBinding.instance.addObserver(this);
 

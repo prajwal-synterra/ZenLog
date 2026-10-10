@@ -21,14 +21,22 @@ def get_firebase_app():
     if _firebase_app is not None:
         return _firebase_app
 
-    if not os.path.exists(SERVICE_ACCOUNT_PATH):
-        logger.warning(f"Firebase credentials not found at {SERVICE_ACCOUNT_PATH}")
-        return None
-
     try:
         if not firebase_admin._apps:
-            cred = credentials.Certificate(SERVICE_ACCOUNT_PATH)
-            _firebase_app = firebase_admin.initialize_app(cred)
+            # 1. Check for raw JSON string in environment variable (Render production)
+            json_str = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON")
+            if json_str:
+                import json
+                cred_dict = json.loads(json_str)
+                cred = credentials.Certificate(cred_dict)
+                _firebase_app = firebase_admin.initialize_app(cred)
+            # 2. Check for file path
+            elif os.path.exists(SERVICE_ACCOUNT_PATH):
+                cred = credentials.Certificate(SERVICE_ACCOUNT_PATH)
+                _firebase_app = firebase_admin.initialize_app(cred)
+            else:
+                logger.warning(f"Firebase credentials not found at {SERVICE_ACCOUNT_PATH} or in FIREBASE_SERVICE_ACCOUNT_JSON")
+                return None
         else:
             _firebase_app = firebase_admin.get_app()
         logger.info("Firebase Admin initialized successfully.")
@@ -113,7 +121,12 @@ def send_push_to_token(token: str, template_type: str, **kwargs) -> bool:
             notification=messaging.AndroidNotification(
                 title=title,
                 body=body,
-                color="#1E293B",  # Ink slate
+                icon="ic_notification",
+                color="#0D2115",  # ZenLog brand dark green
+                channel_id="zenlog_alerts",
+                sound="default",
+                default_sound=True,
+                default_vibrate_timings=True,
                 click_action="FLUTTER_NOTIFICATION_CLICK",
                 tag=template_type,
             ),

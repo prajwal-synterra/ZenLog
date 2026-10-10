@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import '../../core/theme/zen_colors.dart';
 import '../../services/api_service.dart';
+import '../../services/notification_service.dart';
 
 class NotificationSettingsScreen extends StatefulWidget {
   const NotificationSettingsScreen({super.key});
@@ -11,6 +14,7 @@ class NotificationSettingsScreen extends StatefulWidget {
 
 class _NotificationSettingsScreenState extends State<NotificationSettingsScreen> {
   final ApiService _api = ApiService();
+  StreamSubscription<RemoteMessage>? _foregroundSub;
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -28,10 +32,74 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
   void initState() {
     super.initState();
     _loadSettings();
+    _foregroundSub = NotificationService().onForegroundMessage.listen((msg) {
+      if (!mounted) return;
+      _showInAppNotificationBanner(msg);
+    });
+  }
+
+  @override
+  void dispose() {
+    _foregroundSub?.cancel();
+    super.dispose();
+  }
+
+  void _showInAppNotificationBanner(RemoteMessage msg) {
+    final title = msg.notification?.title ?? 'ZenLog Alert';
+    final body = msg.notification?.body ?? '';
+    final t = context.zen;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: t.surface,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: t.accent.withOpacity(0.4), width: 1.5),
+        ),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        content: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: t.accent.withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.notifications_active_rounded, color: t.accent, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(color: t.ink, fontWeight: FontWeight.w700, fontSize: 13),
+                  ),
+                  if (body.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      body,
+                      style: TextStyle(color: t.inkMuted, fontSize: 12, height: 1.3),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+        duration: const Duration(seconds: 4),
+      ),
+    );
   }
 
   Future<void> _loadSettings() async {
     setState(() => _isLoading = true);
+    // Ensure the device FCM token is registered with backend
+    NotificationService().syncToken();
     final data = await _api.getNotificationSettings();
     if (mounted) {
       if (data != null) {
@@ -80,22 +148,27 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
     final t = context.zen;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Dispatching $label test…'),
+        content: Text('Sending $label notification…'),
         backgroundColor: t.ink,
         duration: const Duration(seconds: 1),
       ),
     );
 
+    // Make sure device token is synced with backend first
+    await NotificationService().syncToken();
+
     final res = await _api.triggerTestNotification(template: template);
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(res.message),
-        backgroundColor: res.ok ? t.ink : t.dangerFill,
-        duration: const Duration(seconds: 3),
-      ),
-    );
+    if (!res.ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res.message),
+          backgroundColor: t.dangerFill,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
   }
 
   void _showAddCustomDialog() {
@@ -467,6 +540,28 @@ class _NotificationSettingsScreenState extends State<NotificationSettingsScreen>
                       t: t,
                     ),
                   ],
+                ),
+
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: t.surfaceAlt,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: t.line),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.lightbulb_outline_rounded, size: 18, color: t.accent),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Test alerts preview as a popup while ZenLog is open, or in your phone notification shade & lock screen when minimized.',
+                          style: TextStyle(fontSize: 12, color: t.inkMuted, height: 1.3),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
 
                 const SizedBox(height: 40),

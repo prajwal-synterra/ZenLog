@@ -93,6 +93,8 @@ flutter_*.png
 **/android/app/profile/
 **/android/app/release/
 **/android/captures/
+*.apk
+*.aab
 *.keystore
 *.jks
 key.properties
