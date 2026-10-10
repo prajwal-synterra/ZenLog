@@ -1056,6 +1056,88 @@ class ApiService {
     } catch (_) {}
     return false;
   }
+
+  // ── Push Notifications ────────────────────────────────────────────────────
+  Future<bool> registerFcmToken(String fcmToken, {String? deviceId}) async {
+    try {
+      final res = await http
+          .post(
+            Uri.parse('${ApiConstants.baseUrl}/api/notifications/register-token'),
+            headers: _headers,
+            body: jsonEncode({
+              'fcm_token': fcmToken,
+              if (deviceId != null) 'device_id': deviceId,
+              'platform': 'android',
+            }),
+          )
+          .timeout(const Duration(seconds: 8));
+      return res.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  Future<Map<String, dynamic>?> getNotificationSettings() async {
+    try {
+      final res = await http
+          .get(
+            Uri.parse('${ApiConstants.baseUrl}/api/notifications/settings'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body);
+        return (body['settings'] as Map?)?.cast<String, dynamic>();
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<bool> updateNotificationSettings(Map<String, dynamic> settings) async {
+    try {
+      final res = await http
+          .put(
+            Uri.parse('${ApiConstants.baseUrl}/api/notifications/settings'),
+            headers: _headers,
+            body: jsonEncode(settings),
+          )
+          .timeout(const Duration(seconds: 8));
+      return res.statusCode == 200;
+    } catch (_) {}
+    return false;
+  }
+
+  Future<({bool ok, String message})> triggerTestNotification({String template = 'test'}) async {
+    try {
+      final res = await http
+          .post(
+            Uri.parse('${ApiConstants.baseUrl}/api/notifications/test?template=$template'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 10));
+      final body = jsonDecode(res.body);
+      return (
+        ok: body['ok'] == true,
+        message: (body['detail'] as String?) ?? 'Notification sent.',
+      );
+    } catch (e) {
+      return (ok: false, message: e.toString());
+    }
+  }
+
+  Future<Map<String, dynamic>?> checkMealsAndNotify() async {
+    try {
+      final res = await http
+          .post(
+            Uri.parse('${ApiConstants.baseUrl}/api/notifications/check-meals'),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        return jsonDecode(res.body);
+      }
+    } catch (_) {}
+    return null;
+  }
 }
 
 extension DateHelper on DateTime {

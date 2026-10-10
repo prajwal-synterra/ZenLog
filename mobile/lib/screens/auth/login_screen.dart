@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/zen_colors.dart';
 import '../../services/api_service.dart';
 import '../../services/auth_storage.dart';
+import '../../services/notification_service.dart';
 import 'day_ready_loading_screen.dart';
 
 // ZenLog v3 §6.3 – Login screen
@@ -97,6 +98,7 @@ class _LoginScreenState extends State<LoginScreen> {
           username: username,
           phone: phone,
         );
+        NotificationService().syncToken();
       }
       if (!mounted) return;
 

@@ -11,6 +11,7 @@ import '../../services/sync_engine.dart';
 import '../../services/wake_service.dart';
 import '../../state/zen_state.dart';
 import '../auth/landing_screen.dart';
+import 'notification_settings_screen.dart';
 import 'saved_meals_screen.dart';
 
 
@@ -769,6 +770,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   detail: (user?.hasPin == true) ? 'Change PIN' : 'Set up PIN',
                   t: t,
                   onTap: _showPinSetupDialog,
+                ),
+              ]),
+
+              const SizedBox(height: 24),
+
+              // ── REMINDERS & NOTIFICATIONS ────────────────────────────────────
+              _SectionLabel(label: 'REMINDERS & NOTIFICATIONS', t: t),
+              const SizedBox(height: 10),
+              _SettingsCard(t: t, children: [
+                _SettingsRow(
+                  label: 'Smart Alerts & Quotes',
+                  value: 'Configured',
+                  detail: 'Meals, Quotes, Habits',
+                  t: t,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const NotificationSettingsScreen(),
+                      ),
+                    );
+                  },
                 ),
               ]),
 

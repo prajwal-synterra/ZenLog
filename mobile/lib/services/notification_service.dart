@@ -1,10 +1,12 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'api_service.dart';
+import 'auth_storage.dart';
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // Ensure Firebase is initialized for background isolate handling
   await Firebase.initializeApp();
   if (kDebugMode) {
     print('Handling background notification: ${message.messageId} - ${message.notification?.title}');
@@ -18,6 +20,9 @@ class NotificationService {
 
   String? _fcmToken;
   String? get fcmToken => _fcmToken;
+
+  final _foregroundStreamController = StreamController<RemoteMessage>.broadcast();
+  Stream<RemoteMessage> get onForegroundMessage => _foregroundStreamController.stream;
 
   Future<void> init() async {
     try {
@@ -50,12 +55,15 @@ class NotificationService {
         print('========================================');
       }
 
+      await syncToken();
+
       // Listen for token refreshes
       messaging.onTokenRefresh.listen((newToken) {
         _fcmToken = newToken;
         if (kDebugMode) {
           print('FCM Token Refreshed: $newToken');
         }
+        syncToken();
       });
 
       // Foreground message listener
@@ -63,6 +71,7 @@ class NotificationService {
         if (kDebugMode) {
           print('Received foreground notification: ${message.notification?.title}: ${message.notification?.body}');
         }
+        _foregroundStreamController.add(message);
       });
 
       // When user taps a notification while app is in background
@@ -82,5 +91,17 @@ class NotificationService {
         print('NotificationService init error: $e');
       }
     }
+  }
+
+  /// Registers token with ZenLog backend if user has an active session.
+  Future<void> syncToken() async {
+    if (_fcmToken == null || _fcmToken!.isEmpty) return;
+    try {
+      final token = await AuthStorage.getToken();
+      if (token != null && token.isNotEmpty) {
+        final deviceId = await AuthStorage.getOrCreateDeviceId();
+        await ApiService().registerFcmToken(_fcmToken!, deviceId: deviceId);
+      }
+    } catch (_) {}
   }
 }

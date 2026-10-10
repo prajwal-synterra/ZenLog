@@ -16,6 +16,10 @@ backend/.env.*
 *.crt
 *.pfx
 *.p12
+*firebase*service*account*.json
+firebase-adminsdk*.json
+backend/firebase_service_account.json
+backend/*.json.secret
 
 # ─── Python & Virtual Environments ────────────────────────────────────────────
 .venv/

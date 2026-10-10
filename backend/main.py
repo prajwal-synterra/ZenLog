@@ -26,6 +26,7 @@ from backend.routes.logs import router as logs_router
 from backend.routes.food_scan import router as food_scan_router
 from backend.routes.photo_meal import router as photo_meal_router
 from backend.routes.quotes import router as quotes_router
+from backend.routes.notifications import router as notifications_router
 from backend.routes.saved_meals import router as saved_meals_router
 from backend.routes.stats import router as stats_router
 from backend.routes.users import router as users_router
@@ -223,3 +224,4 @@ app.include_router(stats_router)
 app.include_router(insights_router)
 app.include_router(export_router)
 app.include_router(saved_meals_router)
+app.include_router(notifications_router)
