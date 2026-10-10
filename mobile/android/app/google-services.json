@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "67709493073",
+    "project_id": "zenlog-private",
+    "storage_bucket": "zenlog-private.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:67709493073:android:3bd316b1c9852dff88bd70",
+        "android_client_info": {
+          "package_name": "com.zenlog.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBFiMU4I9RGpyHb4rVDKTHbLxyR7RSqjrM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

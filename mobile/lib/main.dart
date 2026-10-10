@@ -4,10 +4,12 @@ import 'core/theme/zen_theme.dart';
 import 'core/theme/zen_theme_controller.dart';
 import 'screens/auth/landing_screen.dart';
 import 'screens/auth/login_screen.dart';
+import 'services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await ZenThemeController.instance.init();
+  await NotificationService().init();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
