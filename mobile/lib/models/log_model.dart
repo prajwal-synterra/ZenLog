@@ -4,6 +4,9 @@ class LogEntryModel {
   final String date;
   final String timestamp;
   final String text;
+  final String? loggedAt;
+  final String? source;
+  final String? clientId;
 
   LogEntryModel({
     required this.id,
@@ -11,15 +14,21 @@ class LogEntryModel {
     required this.date,
     required this.timestamp,
     required this.text,
+    this.loggedAt,
+    this.source,
+    this.clientId,
   });
 
   factory LogEntryModel.fromJson(Map<String, dynamic> json) {
     return LogEntryModel(
       id: json['id'] ?? json['_id'] ?? '',
       userId: json['user_id'] ?? '',
-      date: json['date'] ?? '',
+      date: json['date'] ?? json['logical_date'] ?? '',
       timestamp: json['timestamp'] ?? '',
       text: json['text'] ?? '',
+      loggedAt: json['logged_at'],
+      source: json['source'],
+      clientId: json['client_id'],
     );
   }
 
@@ -30,6 +39,9 @@ class LogEntryModel {
       'date': date,
       'timestamp': timestamp,
       'text': text,
+      'logged_at': loggedAt,
+      'source': source,
+      'client_id': clientId,
     };
   }
 }

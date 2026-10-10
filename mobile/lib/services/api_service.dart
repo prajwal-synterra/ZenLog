@@ -6,6 +6,7 @@ import '../models/log_model.dart';
 import '../models/day_record_model.dart';
 import '../models/insight_model.dart';
 import '../models/prompt_status_model.dart';
+import 'wake_service.dart';
 
 class ApiService {
   static final ApiService _instance = ApiService._internal();
@@ -27,6 +28,22 @@ class ApiService {
   // HEALTH
   // ─────────────────────────────────────────────────────────────────────────
 
+  Future<bool> pingServer({Duration timeout = const Duration(seconds: 5)}) async {
+    try {
+      final res = await http
+          .get(
+            Uri.parse('${ApiConstants.baseUrl}/ping'),
+            headers: {'ngrok-skip-browser-warning': 'true'},
+          )
+          .timeout(timeout);
+      if (res.statusCode == 200) {
+        WakeService().markServerWarm();
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
   Future<bool> pingHealth() async {
     try {
       final res = await http
@@ -35,7 +52,10 @@ class ApiService {
             headers: {'ngrok-skip-browser-warning': 'true'},
           )
           .timeout(const Duration(seconds: 5));
-      return res.statusCode == 200;
+      if (res.statusCode == 200) {
+        WakeService().markServerWarm();
+        return true;
+      }
     } catch (_) {}
     return false;
   }
@@ -225,18 +245,87 @@ class ApiService {
   // LOGS
   // ─────────────────────────────────────────────────────────────────────────
 
-  Future<LogEntryModel?> createLog(String text, {String? date}) async {
+  Future<LogEntryModel?> createLog(
+    String text, {
+    String? date,
+    DateTime? loggedAt,
+    String? clientId,
+  }) async {
     try {
-      final body = <String, dynamic>{'text': text};
+      final body = <String, dynamic>{
+        'text': text,
+        if (date != null) 'date': date,
+        if (loggedAt != null) 'logged_at': loggedAt.toIso8601String(),
+        if (clientId != null) 'client_id': clientId,
+      };
       final res = await http
           .post(
             Uri.parse('${ApiConstants.baseUrl}${ApiConstants.logs}'),
             headers: _headers,
             body: jsonEncode(body),
           )
-          .timeout(const Duration(seconds: 8));
+          .timeout(const Duration(seconds: 15));
 
-      if (res.statusCode == 201) {
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return LogEntryModel.fromJson(jsonDecode(res.body));
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Creates a pre-structured log (e.g. quick water, saved meal) without Gemini.
+  Future<LogEntryModel?> createStructuredLog({
+    required String text,
+    required Map<String, dynamic> extracted,
+    String source = 'structured',
+    Map<String, dynamic>? meta,
+    DateTime? loggedAt,
+    String? clientId,
+  }) async {
+    try {
+      final body = <String, dynamic>{
+        'text': text,
+        'extracted': extracted,
+        'source': source,
+        if (meta != null) 'meta': meta,
+        if (loggedAt != null) 'logged_at': loggedAt.toIso8601String(),
+        if (clientId != null) 'client_id': clientId,
+      };
+      final res = await http
+          .post(
+            Uri.parse('${ApiConstants.baseUrl}${ApiConstants.logs}/structured'),
+            headers: _headers,
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        return LogEntryModel.fromJson(jsonDecode(res.body));
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Repeats an existing log to now or specified loggedAt.
+  Future<LogEntryModel?> repeatLog(
+    String logId, {
+    DateTime? loggedAt,
+    String? clientId,
+  }) async {
+    try {
+      final body = <String, dynamic>{
+        if (loggedAt != null) 'logged_at': loggedAt.toIso8601String(),
+        if (clientId != null) 'client_id': clientId,
+      };
+      final res = await http
+          .post(
+            Uri.parse('${ApiConstants.baseUrl}${ApiConstants.logs}/$logId/repeat'),
+            headers: _headers,
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (res.statusCode == 200 || res.statusCode == 201) {
         return LogEntryModel.fromJson(jsonDecode(res.body));
       }
     } catch (_) {}
@@ -255,6 +344,7 @@ class ApiService {
         'text': text,
         if (clientId != null) 'client_id': clientId,
         if (timestamp != null) 'timestamp': timestamp.toIso8601String(),
+        if (timestamp != null) 'logged_at': timestamp.toIso8601String(),
       };
       final res = await http
           .post(
@@ -281,15 +371,23 @@ class ApiService {
     }
   }
 
-  Future<LogEntryModel?> updateLog(String logId, String newText) async {
+  Future<LogEntryModel?> updateLog(
+    String logId,
+    String? newText, {
+    DateTime? loggedAt,
+  }) async {
     try {
+      final body = <String, dynamic>{
+        if (newText != null) 'text': newText,
+        if (loggedAt != null) 'logged_at': loggedAt.toIso8601String(),
+      };
       final res = await http
           .put(
             Uri.parse('${ApiConstants.baseUrl}${ApiConstants.logs}/$logId'),
             headers: _headers,
-            body: jsonEncode({'text': newText}),
+            body: jsonEncode(body),
           )
-          .timeout(const Duration(seconds: 8));
+          .timeout(const Duration(seconds: 12));
 
       if (res.statusCode == 200) {
         return LogEntryModel.fromJson(jsonDecode(res.body));

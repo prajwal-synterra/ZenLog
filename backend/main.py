@@ -74,10 +74,13 @@ async def lifespan(app: FastAPI):
     db["sessions"].create_index("token_hash", unique=True, name="session_token_unique")
     db["sessions"].create_index("expires_at", expireAfterSeconds=0, name="session_expiry_ttl")
 
-    # Logs (v2 schema)
     db["daily_logs"].create_index(
         [("user_id", 1), ("date", 1), ("timestamp", 1)],
         name="user_date_timestamp",
+    )
+    db["daily_logs"].create_index(
+        [("user_id", 1), ("logical_date", 1)],
+        name="user_logical_date",
     )
     db["daily_logs"].create_index(
         [("extraction_status", 1), ("updated_at", 1)],
@@ -133,9 +136,14 @@ async def lifespan(app: FastAPI):
     # --- Start periodic sweeper ---
     sweeper_task = asyncio.create_task(_sweeper_loop(db))
 
+    # --- Start keep-alive loop (Module 1 Render stay-awake) ---
+    from backend.services.keepalive import keepalive_loop
+    keepalive_task = asyncio.create_task(keepalive_loop())
+
     try:
         yield
     finally:
+        keepalive_task.cancel()
         sweeper_task.cancel()
         client.close()
 

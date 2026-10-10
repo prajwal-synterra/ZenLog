@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'api_service.dart';
 import 'connection_monitor.dart';
 import 'offline_storage.dart';
+import 'wake_service.dart';
 
 /// Single-flight mutex for sync operations
 class SingleFlightMutex {
@@ -88,9 +89,14 @@ class SyncEngine extends ChangeNotifier {
       if (monitor.state == ConnectionStateEnum.authRequired) {
         return;
       }
+      // Module 1 safety: do not flush queue while server is cold/waking
+      if (WakeService().isWaking && trigger != 'wake') {
+        return;
+      }
       if (monitor.state == ConnectionStateEnum.disconnected &&
           trigger != 'manual' &&
-          trigger != 'connectivity') {
+          trigger != 'connectivity' &&
+          trigger != 'wake') {
         return;
       }
 

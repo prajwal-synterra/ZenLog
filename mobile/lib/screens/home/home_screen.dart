@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/zen_colors.dart';
 import '../../core/theme/zen_theme_controller.dart';
 import '../../state/zen_state.dart';
+import '../../services/wake_service.dart';
 import 'widgets/morning_walk_card.dart';
 
 
@@ -46,6 +47,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   bool _composerExpanded = false;
   bool _isSending = false;
+  String _selectedPastMealPreset = 'Lunch';
+  TimeOfDay? _customTimeOfDay;
 
   @override
   void initState() {
@@ -84,6 +87,71 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
+  DateTime _resolvePastDateTime(String dateStr, TimeOfDay tod) {
+    final parts = dateStr.split('-');
+    final y = int.tryParse(parts[0]) ?? DateTime.now().year;
+    final m = int.tryParse(parts[1]) ?? DateTime.now().month;
+    final d = int.tryParse(parts[2]) ?? DateTime.now().day;
+    DateTime baseDate = DateTime(y, m, d);
+    if (tod.hour < 4) {
+      // 00:00 - 03:59 belongs to the logical previous day, so it occurs on next calendar day
+      baseDate = baseDate.add(const Duration(days: 1));
+    }
+    return DateTime(baseDate.year, baseDate.month, baseDate.day, tod.hour, tod.minute);
+  }
+
+  Future<void> _handleRepeatLog(String id) async {
+    final t = context.zen;
+    final ok = await widget.state.repeatLog(id);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(ok ? 'Log repeated to today' : 'Could not repeat log'),
+          backgroundColor: t.ink,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleChangeLogTime(String id, String currentDay) async {
+    final t = context.zen;
+    final currentDate = DateTime.tryParse(currentDay) ?? DateTime.now();
+
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: currentDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+    );
+    if (pickedDate == null || !mounted) return;
+
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(DateTime.now()),
+    );
+    if (pickedTime == null || !mounted) return;
+
+    final targetDateTime = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+
+    final ok = await widget.state.moveLogTime(id, targetDateTime);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(ok ? 'Entry moved successfully' : 'Could not move entry'),
+          backgroundColor: t.ink,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
   Future<void> _send() async {
     final text = _logController.text.trim();
     if (text.isEmpty) return;
@@ -91,7 +159,31 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _logController.clear();
     _composerFocus.unfocus();
     setState(() => _composerExpanded = false);
-    await widget.state.addLog(text);
+
+    final mode = (widget.state.currentDayView?['mode'] as String?) ?? 'today';
+    DateTime? loggedAt;
+    if (mode == 'past') {
+      TimeOfDay tod;
+      switch (_selectedPastMealPreset) {
+        case 'Breakfast':
+          tod = const TimeOfDay(hour: 8, minute: 30);
+          break;
+        case 'Lunch':
+          tod = const TimeOfDay(hour: 13, minute: 0);
+          break;
+        case 'Dinner':
+          tod = const TimeOfDay(hour: 20, minute: 30);
+          break;
+        case 'Custom':
+          tod = _customTimeOfDay ?? const TimeOfDay(hour: 12, minute: 0);
+          break;
+        default:
+          tod = const TimeOfDay(hour: 13, minute: 0);
+      }
+      loggedAt = _resolvePastDateTime(widget.state.selectedDate, tod);
+    }
+
+    await widget.state.addLog(text, loggedAt: loggedAt);
     if (mounted) setState(() => _isSending = false);
   }
 
@@ -392,6 +484,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildWakeBanner(t),
           if (mode == 'today') ...[
             if (widget.state.wakeTime != null) ...[
               MorningWalkCard(wakeTime: widget.state.wakeTime!),
@@ -424,6 +517,50 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ],
         ],
       ),
+    );
+  }
+
+  // ── Cold-Start Wake Banner (Module 1) ────────────────────────────────────
+
+  Widget _buildWakeBanner(ZenThemeTokens t) {
+    return ListenableBuilder(
+      listenable: WakeService(),
+      builder: (context, _) {
+        if (!WakeService().isWaking) return const SizedBox.shrink();
+        return Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: t.warnTint,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: t.warnFill.withValues(alpha: 0.3)),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(t.warnFill),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Waking server… (can take up to a minute on cold start)',
+                  style: TextStyle(
+                    color: t.warnText,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -680,6 +817,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           t: t,
           onEdit: (id, text) => _showEditDialog(id, text, state),
           onDelete: (id) => _confirmDelete(id, state),
+          onRepeat: _handleRepeatLog,
+          onChangeTime: _handleChangeLogTime,
         )).toList(),
       ],
     );
@@ -786,10 +925,46 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final rating = (dayView['rating'] as String?) ?? '';
 
     final tokens = t.statusTokens(rating);
+    final dataChanged = dayView['data_changed_since_review'] == true;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (dataChanged) ...[
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              color: t.surfaceAlt,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: t.accent.withValues(alpha: 0.5)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.sync_problem_rounded, size: 18, color: t.accent),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Data changed since last review',
+                    style: TextStyle(color: t.ink, fontSize: 13, fontWeight: FontWeight.w500),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => state.analyzeDay(state.selectedDate),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: Text(
+                    'Update review',
+                    style: TextStyle(color: t.accent, fontWeight: FontWeight.w600, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         // Headline card
         Container(
           decoration: BoxDecoration(
@@ -1221,6 +1396,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // ── Composer dock ──────────────────────────────────────────────────────────
 
   Widget _buildComposerDock(ZenState state, ZenThemeTokens t) {
+    final mode = (state.currentDayView?['mode'] as String?) ?? 'today';
+    final isPast = mode == 'past';
+
     return Container(
       decoration: BoxDecoration(
         color: t.surface,
@@ -1237,76 +1415,199 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  constraints: BoxConstraints(
-                    minHeight: 44,
-                    maxHeight: _composerExpanded ? 140 : 56,
-                  ),
-                  decoration: BoxDecoration(
-                    color: t.surfaceAlt,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: _composerFocus.hasFocus ? t.ink : t.line,
-                      width: _composerFocus.hasFocus ? 1.5 : 1,
+              if (isPast) _buildPastDayComposerBanner(state, t),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      constraints: BoxConstraints(
+                        minHeight: 44,
+                        maxHeight: _composerExpanded ? 140 : 56,
+                      ),
+                      decoration: BoxDecoration(
+                        color: t.surfaceAlt,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _composerFocus.hasFocus ? t.ink : t.line,
+                          width: _composerFocus.hasFocus ? 1.5 : 1,
+                        ),
+                      ),
+                      child: TextField(
+                        controller: _logController,
+                        focusNode: _composerFocus,
+                        maxLines: null,
+                        minLines: 1,
+                        maxLength: 1000,
+                        keyboardType: TextInputType.multiline,
+                        textCapitalization: TextCapitalization.sentences,
+                        style: TextStyle(color: t.ink, fontSize: 15, height: 1.4),
+                        decoration: InputDecoration(
+                          hintText: isPast ? 'What did you eat, do or feel that day?…' : 'Write what you ate, did or felt…',
+                          hintStyle: TextStyle(color: t.inkFaint, fontSize: 15),
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          counterText: '',
+                        ),
+                        onTap: () => setState(() => _composerExpanded = true),
+                        onChanged: (_) => setState(() {}),
+                      ),
                     ),
                   ),
-                  child: TextField(
-                    controller: _logController,
-                    focusNode: _composerFocus,
-                    maxLines: null,
-                    minLines: 1,
-                    maxLength: 1000,
-                    keyboardType: TextInputType.multiline,
-                    textCapitalization: TextCapitalization.sentences,
-                    style: TextStyle(color: t.ink, fontSize: 15, height: 1.4),
-                    decoration: InputDecoration(
-                      hintText: 'Write what you ate, did or felt…',
-                      hintStyle: TextStyle(color: t.inkFaint, fontSize: 15),
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      counterText: '',
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: _logController.text.trim().isEmpty || _isSending ? null : _send,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: _logController.text.trim().isEmpty || _isSending ? t.surfaceAlt : t.ink,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: t.line),
+                      ),
+                      child: Center(
+                        child: _isSending
+                            ? SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: t.onInk),
+                              )
+                            : Icon(
+                                Icons.arrow_upward_rounded,
+                                size: 20,
+                                color: _logController.text.trim().isEmpty ? t.inkFaint : t.onInk,
+                              ),
+                      ),
                     ),
-                    onTap: () => setState(() => _composerExpanded = true),
-                    onChanged: (_) => setState(() {}),
                   ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: _logController.text.trim().isEmpty || _isSending ? null : _send,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: _logController.text.trim().isEmpty || _isSending ? t.surfaceAlt : t.ink,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: t.line),
-                  ),
-                  child: Center(
-                    child: _isSending
-                        ? SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: t.onInk),
-                          )
-                        : Icon(
-                            Icons.arrow_upward_rounded,
-                            size: 20,
-                            color: _logController.text.trim().isEmpty ? t.inkFaint : t.onInk,
-                          ),
-                  ),
-                ),
+                ],
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPastDayComposerBanner(ZenState state, ZenThemeTokens t) {
+    final d = DateTime.tryParse(state.selectedDate) ?? DateTime.now();
+    final dayLabel = '${_weekdayFull(d.weekday).substring(0, 3)}, ${d.day} ${_monthFull(d.month).substring(0, 3)}';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.history_rounded, size: 14, color: t.accent),
+              const SizedBox(width: 6),
+              Text(
+                'Logging to $dayLabel',
+                style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: t.ink),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildMealChip('Breakfast (08:30)', 'Breakfast', t),
+                const SizedBox(width: 6),
+                _buildMealChip('Lunch (13:00)', 'Lunch', t),
+                const SizedBox(width: 6),
+                _buildMealChip('Dinner (20:30)', 'Dinner', t),
+                const SizedBox(width: 6),
+                _buildCustomMealChip(t),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMealChip(String label, String key, ZenThemeTokens t) {
+    final isSelected = _selectedPastMealPreset == key;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedPastMealPreset = key),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected ? t.ink : t.surfaceAlt,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: isSelected ? t.ink : t.line),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? t.onInk : t.inkMuted,
+            fontSize: 11,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCustomMealChip(ZenThemeTokens t) {
+    final isSelected = _selectedPastMealPreset == 'Custom';
+    final tod = _customTimeOfDay;
+    String label = 'Custom';
+    if (tod != null) {
+      final hourStr = tod.hour.toString().padLeft(2, '0');
+      final minStr = tod.minute.toString().padLeft(2, '0');
+      final afterMidnight = tod.hour < 4 ? ' (after midnight)' : '';
+      label = '$hourStr:$minStr$afterMidnight';
+    }
+
+    return GestureDetector(
+      onTap: () async {
+        final initialTime = _customTimeOfDay ?? const TimeOfDay(hour: 12, minute: 0);
+        final picked = await showTimePicker(
+          context: context,
+          initialTime: initialTime,
+        );
+        if (picked != null) {
+          setState(() {
+            _customTimeOfDay = picked;
+            _selectedPastMealPreset = 'Custom';
+          });
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: isSelected ? t.ink : t.surfaceAlt,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: isSelected ? t.ink : t.line),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.access_time_rounded,
+              size: 12,
+              color: isSelected ? t.onInk : t.inkMuted,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? t.onInk : t.inkMuted,
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1696,6 +1997,8 @@ class _EntryRow extends StatelessWidget {
   final ZenThemeTokens t;
   final void Function(String id, String text) onEdit;
   final void Function(String id) onDelete;
+  final void Function(String id)? onRepeat;
+  final void Function(String id, String currentDay)? onChangeTime;
 
   const _EntryRow({
     required this.log,
@@ -1704,6 +2007,8 @@ class _EntryRow extends StatelessWidget {
     required this.t,
     required this.onEdit,
     required this.onDelete,
+    this.onRepeat,
+    this.onChangeTime,
   });
 
   @override
@@ -1790,6 +2095,22 @@ class _EntryRow extends StatelessWidget {
                       const Spacer(),
                       // For failed entries always show edit/delete
                       if (editable || isFailed) ...[
+                        if (onRepeat != null && id.isNotEmpty) ...[
+                          _IconButton(
+                            icon: Icons.repeat_rounded,
+                            color: t.inkFaint,
+                            onTap: () => onRepeat!(id),
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        if (onChangeTime != null && id.isNotEmpty) ...[
+                          _IconButton(
+                            icon: Icons.schedule_rounded,
+                            color: t.inkFaint,
+                            onTap: () => onChangeTime!(id, log['date'] as String? ?? state.selectedDate),
+                          ),
+                          const SizedBox(width: 4),
+                        ],
                         _IconButton(
                           icon: Icons.edit_outlined,
                           color: t.inkFaint,

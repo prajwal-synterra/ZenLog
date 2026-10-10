@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../core/theme/zen_colors.dart';
 import '../services/morning_flow_service.dart';
+import '../services/wake_service.dart';
 import '../state/zen_state.dart';
 import 'home/home_screen.dart';
 import 'calendar/calendar_screen.dart';
@@ -22,6 +23,7 @@ class _MainScaffoldState extends State<MainScaffold> with WidgetsBindingObserver
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    WakeService().wakeAndProbe();
     _state.init().then((_) {
       if (mounted) {
         MorningFlowService.evaluate(context, _state);
@@ -35,6 +37,7 @@ class _MainScaffoldState extends State<MainScaffold> with WidgetsBindingObserver
   @override
   void didChangeAppLifecycleState(AppLifecycleState lifecycleState) {
     if (lifecycleState == AppLifecycleState.resumed) {
+      WakeService().wakeAndProbe();
       MorningFlowService.evaluate(context, _state);
     }
   }

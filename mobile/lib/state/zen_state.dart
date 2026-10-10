@@ -7,6 +7,7 @@ import '../services/auth_storage.dart';
 import '../services/quote_storage.dart';
 import '../services/sleep_wake_storage.dart';
 import '../screens/home/widgets/sleep_wake_dialogs.dart';
+import 'package:uuid/uuid.dart';
 
 /// Single source of truth for the entire app.
 class ZenState extends ChangeNotifier with WidgetsBindingObserver {
@@ -206,14 +207,26 @@ class ZenState extends ChangeNotifier with WidgetsBindingObserver {
 
   // ── Log actions (Direct Online API) ───────────────────────────────────────
 
-  Future<bool> addLog(String text) async {
+  static const _uuid = Uuid();
+
+  Future<bool> addLog(String text, {DateTime? loggedAt}) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return false;
 
     try {
-      final created = await _api.createLog(trimmed, date: _selectedDate);
+      final clientId = _uuid.v4();
+      final effectiveLoggedAt = loggedAt ?? _effectiveDateTimeForSelectedDate();
+      final created = await _api.createLog(
+        trimmed,
+        date: _selectedDate,
+        loggedAt: effectiveLoggedAt,
+        clientId: clientId,
+      );
       if (created != null) {
         _dayViewCache.remove(_selectedDate);
+        if (created.date.isNotEmpty && created.date != _selectedDate) {
+          _dayViewCache.remove(created.date);
+        }
         await loadDayView(_selectedDate);
         return true;
       }
@@ -223,6 +236,60 @@ class ZenState extends ChangeNotifier with WidgetsBindingObserver {
     } catch (e) {
       errorMessage = "Error saving log: $e";
       notifyListeners();
+      return false;
+    }
+  }
+
+  DateTime _effectiveDateTimeForSelectedDate() {
+    final today = logicalToday ?? _todayLocal();
+    if (_selectedDate == today) {
+      return DateTime.now();
+    }
+    // Past date: construct a DateTime for the selected date at 13:00 (Lunch) by default
+    final parts = _selectedDate.split('-');
+    if (parts.length == 3) {
+      final y = int.tryParse(parts[0]) ?? DateTime.now().year;
+      final m = int.tryParse(parts[1]) ?? DateTime.now().month;
+      final d = int.tryParse(parts[2]) ?? DateTime.now().day;
+      return DateTime(y, m, d, 13, 0);
+    }
+    return DateTime.now();
+  }
+
+  Future<bool> repeatLog(String logId, {DateTime? loggedAt}) async {
+    try {
+      final clientId = _uuid.v4();
+      final created = await _api.repeatLog(
+        logId,
+        loggedAt: loggedAt,
+        clientId: clientId,
+      );
+      if (created != null) {
+        final today = logicalToday ?? _todayLocal();
+        _dayViewCache.remove(today);
+        _dayViewCache.remove(_selectedDate);
+        if (created.date.isNotEmpty) {
+          _dayViewCache.remove(created.date);
+        }
+        await loadDayView(_selectedDate);
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> moveLogTime(String logId, DateTime newLoggedAt) async {
+    try {
+      final updated = await _api.updateLog(logId, null, loggedAt: newLoggedAt);
+      if (updated != null) {
+        _dayViewCache.clear();
+        await loadDayView(_selectedDate);
+        return true;
+      }
+      return false;
+    } catch (_) {
       return false;
     }
   }
@@ -431,8 +498,8 @@ class ZenState extends ChangeNotifier with WidgetsBindingObserver {
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   static String _todayLocal() {
-    final now = DateTime.now();
-    return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final shifted = DateTime.now().subtract(const Duration(hours: 4));
+    return '${shifted.year}-${shifted.month.toString().padLeft(2, '0')}-${shifted.day.toString().padLeft(2, '0')}';
   }
 
   UserModel _userFromMe(Map<String, dynamic> me) {

@@ -7,6 +7,12 @@ from pymongo.errors import PyMongoError
 router = APIRouter(tags=["health"])
 
 
+@router.get("/ping")
+def ping():
+    """Ultra-fast keep-alive and cold-start check. Touches NO database."""
+    return {"ok": True}
+
+
 @router.get("/health")
 def health(request: Request):
     now_iso = datetime.now(timezone.utc).isoformat()

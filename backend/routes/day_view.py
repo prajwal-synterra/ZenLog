@@ -214,6 +214,7 @@ def get_day_view(
         "rating": rating,
         "verdict": verdict,
         "verdict_status": verdict_status,
+        "data_changed_since_review": bool(day_doc and day_doc.get("data_changed_since_review", False)),
         "motivation": None,
         "quote": daily_quote,
     }
@@ -238,7 +239,11 @@ def analyze_day(
     database["days"].update_one(
         {"user_id": user_id, "date": day_key},
         {"$inc": {"analysis_count_today": 1},
-         "$set": {"verdict_status": "pending", "updated_at": datetime.now(timezone.utc)}},
+         "$set": {
+             "verdict_status": "pending",
+             "data_changed_since_review": False,
+             "updated_at": datetime.now(timezone.utc),
+         }},
         upsert=True,
     )
     background_tasks.add_task(generate_verdict_background, database, user_id, day_key)

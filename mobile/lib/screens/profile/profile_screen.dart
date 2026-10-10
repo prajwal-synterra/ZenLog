@@ -4,6 +4,7 @@ import '../../core/theme/zen_colors.dart';
 import '../../services/auth_storage.dart';
 import '../../services/connection_monitor.dart';
 import '../../services/sync_engine.dart';
+import '../../services/wake_service.dart';
 import '../../state/zen_state.dart';
 import '../auth/landing_screen.dart';
 
@@ -23,22 +24,10 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  bool _serverOk = true;
-
   @override
   void initState() {
     super.initState();
-    _checkHealth();
-  }
-
-  Future<void> _checkHealth() async {
-    // Ping health endpoint via API service
-    try {
-      final ok = await widget.state.pingHealth();
-      if (mounted) setState(() => _serverOk = ok);
-    } catch (_) {
-      if (mounted) setState(() => _serverOk = false);
-    }
+    WakeService().wakeAndProbe();
   }
 
   void _showTargetEditor({
@@ -543,36 +532,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildConnectionCard(ZenThemeTokens t) {
     return ListenableBuilder(
-      listenable: SyncEngine(),
+      listenable: WakeService(),
       builder: (context, _) {
-        return StreamBuilder<ConnectionSnapshot>(
-          stream: ConnectionMonitor().stream,
-          initialData: ConnectionMonitor().current,
-          builder: (context, snapshot) {
-            final conn = snapshot.data ?? ConnectionMonitor().current;
-            final queuedCount = SyncEngine().queuedCount;
-            final isSyncing = SyncEngine().isSyncing;
+        final wake = WakeService();
+        return ListenableBuilder(
+          listenable: SyncEngine(),
+          builder: (context, _) {
+            return StreamBuilder<ConnectionSnapshot>(
+              stream: ConnectionMonitor().stream,
+              initialData: ConnectionMonitor().current,
+              builder: (context, snapshot) {
+                final conn = snapshot.data ?? ConnectionMonitor().current;
+                final queuedCount = SyncEngine().queuedCount;
+                final isSyncing = SyncEngine().isSyncing;
 
-            Color dotColor;
-            String statusTitle;
-            switch (conn.state) {
-              case ConnectionStateEnum.connected:
-                dotColor = t.successFill;
-                statusTitle = 'Connected to server';
-                break;
-              case ConnectionStateEnum.disconnected:
-                dotColor = t.dangerFill;
-                statusTitle = 'Backend not reachable';
-                break;
-              case ConnectionStateEnum.authRequired:
-                dotColor = t.warnFill;
-                statusTitle = 'Session ended. Log in again.';
-                break;
-              case ConnectionStateEnum.unknown:
-                dotColor = t.inkFaint;
-                statusTitle = 'Checking connection…';
-                break;
-            }
+                Color dotColor;
+                String statusTitle;
+                if (wake.isWaking) {
+                  dotColor = t.warnFill;
+                  statusTitle = 'Waking server… (cold start)';
+                } else {
+                  switch (conn.state) {
+                    case ConnectionStateEnum.connected:
+                      dotColor = t.successFill;
+                      statusTitle = 'Connected to server';
+                      break;
+                    case ConnectionStateEnum.disconnected:
+                      dotColor = t.dangerFill;
+                      statusTitle = 'Backend not reachable';
+                      break;
+                    case ConnectionStateEnum.authRequired:
+                      dotColor = t.warnFill;
+                      statusTitle = 'Session ended. Log in again.';
+                      break;
+                    case ConnectionStateEnum.unknown:
+                      dotColor = t.inkFaint;
+                      statusTitle = 'Checking connection…';
+                      break;
+                  }
+                }
 
             return Container(
               padding: const EdgeInsets.all(16),
@@ -615,9 +613,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ),
                       ),
-                      if (conn.state == ConnectionStateEnum.disconnected)
+                      if (conn.state == ConnectionStateEnum.disconnected || wake.isUnreachable)
                         GestureDetector(
                           onTap: () {
+                            WakeService().wakeAndProbe(forceColdCheck: true);
                             ConnectionMonitor().probeNow();
                             SyncEngine().runSync('manual');
                           },
@@ -659,6 +658,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                           ),
                         ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Text(
+                        'Server: ${wake.isAwake ? "Awake" : wake.isWaking ? "Waking…" : "Unreachable"} · Ping: ${wake.timeSinceLastPingFormatted}',
+                        style: TextStyle(color: t.inkMuted, fontSize: 11.5),
+                      ),
+                      const Spacer(),
+                      Text('10m Keep-Alive Active', style: TextStyle(color: t.inkFaint, fontSize: 11)),
                     ],
                   ),
                   if (conn.state == ConnectionStateEnum.disconnected) ...[
@@ -710,7 +720,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
       },
     );
-  }
+  },
+);
+}
 
 
   String _initials(String name) {
